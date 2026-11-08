@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="1120" viewBox="0 0 1400 1120" role="img" aria-labelledby="t d">
+  <title id="t">Phase 0 to Phase 9 report chain</title>
+  <desc id="d">Ten stages form a pyramid, with scope and setup at the top and conservative vulnerability review at the base.</desc>
+  <defs><linearGradient id="bg" x2="1" y2="1"><stop stop-color="#0d1c2a"/><stop offset="1" stop-color="#12283a"/></linearGradient><style>text{font-family:'Nirmala UI','Noto Sans Bengali','Segoe UI',Arial,sans-serif}.n{font-size:27px;font-weight:800;fill:#071722}.label{font-size:22px;font-weight:700;fill:#0c1e29}.hint{font-size:14px;font-weight:600;fill:#183240}.cap{font-size:14px;font-weight:750;letter-spacing:3px;fill:#86deca}</style></defs>
+  <rect width="1400" height="1120" rx="26" fill="url(#bg)"/>
+  <text x="700" y="46" text-anchor="middle" class="cap">SERIAL REPORT HANDOFF · 0 → 9</text>
+  <g opacity=".35" stroke="#b0c9d6" stroke-width="2" stroke-dasharray="5 8"><path d="M700 90v890"/></g>
+  <g>
+    <polygon points="490,80 910,80 920,160 480,160" fill="#68ddc5"/><text x="515" y="116" class="n">0</text><text x="562" y="116" class="label">Scope &amp; Setup</text><text x="562" y="141" class="hint">permission · DNS proof · limits</text>
+    <polygon points="450,170 950,170 960,250 440,250" fill="#67d4c1"/><text x="477" y="206" class="n">1</text><text x="524" y="206" class="label">Passive Recon &amp; OSINT</text><text x="524" y="231" class="hint">public records · certificate data</text>
+    <polygon points="410,260 990,260 1000,340 400,340" fill="#62c8c3"/><text x="437" y="296" class="n">2</text><text x="484" y="296" class="label">Subdomain Discovery</text><text x="484" y="321" class="hint">public DNS · exact root scope</text>
+    <polygon points="370,350 1030,350 1040,430 360,430" fill="#69b8cf"/><text x="397" y="386" class="n">3</text><text x="444" y="386" class="label">Live Host Verification</text><text x="444" y="411" class="hint">bounded homepage requests</text>
+    <polygon points="330,440 1070,440 1080,520 320,520" fill="#7cadd4"/><text x="357" y="476" class="n">4</text><text x="404" y="476" class="label">Technology Fingerprinting</text><text x="404" y="501" class="hint">headers · framework hints</text>
+    <polygon points="290,530 1110,530 1120,610 280,610" fill="#9aa6d1"/><text x="317" y="566" class="n">5</text><text x="364" y="566" class="label">Content &amp; Directory Discovery</text><text x="364" y="591" class="hint">robots.txt · sitemap.xml</text>
+    <polygon points="250,620 1150,620 1160,700 240,700" fill="#b397cb"/><text x="277" y="656" class="n">6</text><text x="324" y="656" class="label">URL &amp; Endpoint Discovery</text><text x="324" y="681" class="hint">same-scope links · deduplicated URLs</text>
+    <polygon points="210,710 1190,710 1200,790 200,790" fill="#ca91b7"/><text x="237" y="746" class="n">7</text><text x="284" y="746" class="label">JavaScript Analysis</text><text x="284" y="771" class="hint">endpoint clues · secrets redacted</text>
+    <polygon points="170,800 1230,800 1240,880 160,880" fill="#da96a0"/><text x="197" y="836" class="n">8</text><text x="244" y="836" class="label">Parameter Discovery</text><text x="244" y="861" class="hint">names only · no payload testing</text>
+    <polygon points="130,890 1270,890 1280,970 120,970" fill="#e7aa7c"/><text x="157" y="926" class="n">9</text><text x="204" y="926" class="label">Vulnerability Review</text><text x="204" y="951" class="hint">passive indicators · human validation</text>
+  </g>
+  <rect x="150" y="1000" width="1100" height="67" rx="15" fill="#102c36" stroke="#285950"/>
+  <text x="700" y="1041" text-anchor="middle" fill="#a8ead8" font-size="17" font-weight="700">Each phase report becomes the next phase input · stop on scope or safety failure</text>
+</svg>

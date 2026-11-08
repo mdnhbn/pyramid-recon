@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="bn">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#091523">
+    <meta name="description" content="একটি domain-এর অনুমোদিত, low-impact web reconnaissance workflow — phase report-সহ।">
+    <title>Pyramid Recon — অনুমোদিত Web Recon</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/assets/style.css">
+    <script src="/assets/app.js" defer></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="#top" aria-label="Pyramid Recon home">
+          <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span><strong>Pyramid Recon</strong><small>AUTHORIZED SURFACE MAPPING</small></span>
+        </a>
+        <div class="topbar-right">
+          <span class="privacy-pill"><span class="pulse-dot"></span> Results stay in this browser</span>
+          <button class="backend-pill" id="backend-status" type="button" data-state="checking" aria-live="polite" title="Python backend connection status"><span class="backend-dot"></span><span>Python backend যাচাই হচ্ছে…</span></button>
+          <a class="source-link" href="https://github.com/mdnhbn/pyramid-recon" target="_blank" rel="noreferrer">Source <span aria-hidden="true">↗</span></a>
+        </div>
+      </header>
+
+      <main id="top">
+        <section class="hero">
+          <div class="hero-copy">
+            <div class="eyebrow"><span class="eyebrow-line"></span> ধারাবাহিক domain assessment</div>
+            <h1>একটি scope.<br><em>দশটি ধাপ.</em></h1>
+            <p class="hero-lede">Phase 0-এর report Phase 1-এ যাবে, তারপর এক ধাপ করে Phase 9 পর্যন্ত। প্রতিটি report আলাদা থাকবে—শেষে পাবেন একসাথে final summary.</p>
+            <div class="hero-stats">
+              <div><strong>10</strong><span>serial phases</span></div>
+              <div><strong>1</strong><span>verified domain</span></div>
+              <div><strong>0</strong><span>exploit requests</span></div>
+            </div>
+          </div>
+          <div class="hero-art"><img src="/assets/pyramid.svg" alt="Phase 0 শীর্ষে ও Phase 9 ভিত্তিতে Recon pipeline পিরামিড"></div>
+        </section>
+
+        <section class="workbench" aria-label="Recon workspace">
+          <div class="section-heading">
+            <div><span class="section-kicker">WORKSPACE / 01</span><h2>নতুন assessment</h2></div>
+            <div class="run-state" id="run-state"><span class="state-dot"></span><span id="state-label">Ready to configure</span></div>
+          </div>
+
+          <div class="workbench-grid">
+            <aside class="setup-panel">
+              <div class="panel-heading"><span class="step-index">A</span><div><h3>Scope ও অনুমতি</h3><p>Active ধাপের আগে ownership proof লাগবে</p></div></div>
+              <form id="scan-form" novalidate autocomplete="off">
+                <label class="field-label" for="domain">Root domain</label>
+                <div class="domain-input-wrap"><span aria-hidden="true">⌕</span><input id="domain" name="domain" type="text" inputmode="url" autocomplete="off" placeholder="example.com" maxlength="253" required><span class="input-suffix">DOMAIN</span></div>
+                <p class="field-hint">URL নয়—শুধু আপনার অনুমোদিত root domain লিখুন। Subdomain শুধু passive inventory-তে থাকবে; সরাসরি HTTP request কেবল verified root-এ যাবে।</p>
+
+                <div class="challenge-box">
+                  <div class="challenge-title"><span class="challenge-icon">⌁</span><div><strong>DNS ownership proof</strong><small>একবার verify করুন, তারপর scan চালান</small></div></div>
+                  <button type="button" id="make-challenge" class="button button-secondary button-small">TXT instruction তৈরি</button>
+                  <div id="challenge-instructions" class="challenge-instructions" hidden>
+                    <p>DNS provider-এ এই TXT record যোগ করুন:</p>
+                    <div class="copy-row"><code id="txt-name"></code><button type="button" class="copy-button" id="copy-name" aria-label="Copy record name">Copy</button></div>
+                    <div class="copy-row"><code id="txt-value"></code><button type="button" class="copy-button" id="copy-value" aria-label="Copy record value">Copy</button></div>
+                    <p class="tiny-note">DNS propagate হলে run করুন। Assessment চলাকালীন record রাখুন।</p>
+                  </div>
+                </div>
+
+                <div class="consent-list">
+                  <label class="check-row"><input id="authorization" type="checkbox"><span class="custom-check"></span><span><strong>আমি এই root domain-এর owner, অথবা লিখিত অনুমতি আছে</strong><small>এই tool সরাসরি শুধু DNS-verified root domain-এ request পাঠাবে।</small></span></label>
+                  <label class="check-row"><input id="provider-consent" type="checkbox"><span class="custom-check"></span><span><strong>Public provider-এ domain query করতে সম্মতি দিচ্ছি</strong><small>Certificate transparency lookup-এর জন্য domain crt.sh-এ যাবে; DNS query resolver-এর কাছে যাবে।</small></span></label>
+                </div>
+
+                <div class="limit-note"><span class="shield-icon" aria-hidden="true">◈</span><span><strong>Low-impact limits</strong><small>একসাথে ১টি job · সর্বোচ্চ ৪টি host · redirect follow নয় · কোনো exploit নয়</small></span></div>
+                <div class="form-actions"><button id="run-button" type="submit" class="button button-primary" disabled><span class="button-orbit" aria-hidden="true">↘</span><span>Serial recon শুরু</span><span class="button-arrow" aria-hidden="true">→</span></button><button type="button" id="stop-button" class="button button-stop" hidden>Stop run</button></div>
+                <p class="form-footnote">প্রতিটি phase শুধু আগের phase-এর report পাওয়ার পর শুরু হবে। Findings স্বয়ংক্রিয়ভাবে যাচাইকৃত vulnerability হিসেবে দেখানো হবে না।</p>
+              </form>
+            </aside>
+
+            <section class="results-panel" aria-label="Phase reports">
+              <div class="results-toolbar">
+                <div><span class="step-index step-index-teal">B</span><div><h3>Phase report stream</h3><p id="report-hint">প্রতিটি ধাপের input, analysis ও output এখানে জমা হবে।</p></div></div>
+                <button type="button" class="button button-secondary button-small" id="clear-history">History clear</button>
+              </div>
+              <div class="progress-area">
+                <div class="progress-meta"><span id="progress-label">অপেক্ষায় আছে</span><span id="progress-value">0 / 10</span></div>
+                <div class="progress-track"><span id="progress-bar"></span></div>
+              </div>
+              <div id="phase-list" class="phase-list" aria-live="polite"></div>
+              <section id="final-card" class="final-card" hidden aria-live="polite">
+                <div class="final-heading"><span class="final-check" aria-hidden="true">✓</span><div><span class="section-kicker">FINAL SYNTHESIS</span><h3>চূড়ান্ত ফলাফল</h3></div><button id="download-report" type="button" class="button button-secondary button-small">Download JSON</button></div>
+                <div id="final-summary" class="final-summary"></div>
+                <details class="json-details"><summary>সম্পূর্ণ final report দেখুন</summary><pre id="final-json"></pre></details>
+              </section>
+              <div class="empty-state" id="empty-state"><span class="empty-icon">⌁</span><strong>Report stream এখানে দেখা যাবে</strong><p>Scope ও TXT proof তৈরি করে সম্মতি দিন, তারপর run শুরু করুন।</p></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="sequence-section">
+          <div class="sequence-copy"><span class="section-kicker">REPORT CHAIN</span><h2>Output পরের ধাপের input</h2><p>একটি phase শেষ হলে তার result পরের phase-এ পাঠানো হয়। কোনো ধাপ block বা fail করলে তার পরের ধাপ শুরু হয় না।</p><div class="sequence-tags"><span>INPUT</span><b>→</b><span>ANALYSIS</span><b>→</b><span>REPORT</span><b>→</b><span>NEXT PHASE</span></div></div>
+          <div class="sequence-visual" aria-label="Report handoff visual"><div class="seq-chip"><small>PHASE 0</small><strong>Scope report</strong></div><span class="seq-arrow">↘</span><div class="seq-chip seq-chip-active"><small>PHASE 1</small><strong>OSINT report</strong></div><span class="seq-arrow">↘</span><div class="seq-chip"><small>PHASE 2–8</small><strong>Analysis chain</strong></div><span class="seq-arrow">↘</span><div class="seq-chip seq-chip-final"><small>PHASE 9</small><strong>Final synthesis</strong></div></div>
+        </section>
+
+        <section class="safety-strip"><div class="safety-mark" aria-hidden="true">✓</div><div><strong>অনুমোদিত scope-এর জন্য তৈরি</strong><p>লিখিত অনুমতি ছাড়া চালাবেন না। Toolটি port scan, form submission, payload injection, credential guessing, WAF bypass, exploitation বা data extraction করে না। Report এই browser-এর local storage-এ থাকে।</p></div><span class="safety-label">SAFE BY DEFAULT</span></section>
+      </main>
+
+      <footer class="footer"><span>PYRAMID RECON <i>·</i> 0 → 9</span><span>Built for explicit, low-impact assessment.</span></footer>
+      <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    </div>
+  </body>
+</html>
