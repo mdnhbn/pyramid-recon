@@ -86,17 +86,26 @@ async def security_headers(request: Request, call_next):
     return response
 
 
-app.mount("/assets", StaticFiles(directory=ASSET_DIR), name="assets")
+# Vercel serves public/ files from its static CDN and may omit them from the
+# Python function bundle. Keep the mount for local development when present.
+if ASSET_DIR.is_dir():
+    app.mount("/assets", StaticFiles(directory=ASSET_DIR), name="assets")
 
 
 @app.get("/", include_in_schema=False)
 def home():
-    return FileResponse(PUBLIC_DIR / "index.html", media_type="text/html")
+    index_file = PUBLIC_DIR / "index.html"
+    if index_file.is_file():
+        return FileResponse(index_file, media_type="text/html")
+    return JSONResponse({"error": "The interface is served by the deployment static host."}, status_code=404)
 
 
 @app.get("/favicon.svg", include_in_schema=False)
 def favicon():
-    return FileResponse(PUBLIC_DIR / "favicon.svg", media_type="image/svg+xml")
+    favicon_file = PUBLIC_DIR / "favicon.svg"
+    if favicon_file.is_file():
+        return FileResponse(favicon_file, media_type="image/svg+xml")
+    return JSONResponse({"error": "The interface is served by the deployment static host."}, status_code=404)
 
 
 @app.get("/api/health")
@@ -729,4 +738,5 @@ async def scan(request: Request, payload: ScanRequest):
             yield json.dumps({"type": "final", "report": result}, ensure_ascii=False, separators=(",", ":")) + "\n"
 
     return StreamingResponse(events(), media_type="application/x-ndjson", headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
+
 
