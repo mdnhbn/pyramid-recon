@@ -69,7 +69,7 @@
                   <label class="check-row"><input id="provider-consent" type="checkbox"><span class="custom-check"></span><span><strong>Public provider-এ domain query করতে সম্মতি দিচ্ছি</strong><small>Certificate transparency lookup-এর জন্য domain crt.sh-এ যাবে; DNS query resolver-এর কাছে যাবে।</small></span></label>
                 </div>
 
-                <div class="limit-note"><span class="shield-icon" aria-hidden="true">◈</span><span><strong>Low-impact limits</strong><small>একসাথে ১টি job · সর্বোচ্চ ৪টি host · redirect follow নয় · কোনো exploit নয়</small></span></div>
+                <div class="limit-note"><span class="shield-icon" aria-hidden="true">◈</span><span><strong>Low-impact limits</strong><small>সর্বোচ্চ ৪টি DNS name · HTTP request শুধু verified root-এ · redirect follow নয় · কোনো exploit নয়</small></span></div>
                 <div class="form-actions"><button id="run-button" type="submit" class="button button-primary" disabled><span class="button-orbit" aria-hidden="true">↘</span><span>Serial recon শুরু</span><span class="button-arrow" aria-hidden="true">→</span></button><button type="button" id="stop-button" class="button button-stop" hidden>Stop run</button></div>
                 <p class="form-footnote">প্রতিটি phase শুধু আগের phase-এর report পাওয়ার পর শুরু হবে। Findings স্বয়ংক্রিয়ভাবে যাচাইকৃত vulnerability হিসেবে দেখানো হবে না।</p>
               </form>
@@ -108,3 +108,4 @@
     </div>
   </body>
 </html>
+
