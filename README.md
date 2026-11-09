@@ -1,6 +1,6 @@
 # Pyramid Recon
 
-বাংলা-প্রথম, Python-ভিত্তিক একটি online web reconnaissance dashboard। একটি domain-এর DNS TXT ownership proof ও অনুমতির সম্মতি যাচাই করে Phase 0 → 9 ধারাবাহিকভাবে চালায়। প্রতিটি phase-এর input, analysis, report ও output আলাদা দেখায়; আগের output-টাই পরের phase-এর input হয়। শেষে final synthesis JSON হিসেবে download করা যায়।
+বাংলা-প্রথম, Python-ভিত্তিক local-first web reconnaissance dashboard। একটি domain-এর DNS TXT ownership proof ও অনুমতির সম্মতি যাচাই করে Phase 0 → 9 ধারাবাহিকভাবে চালায়। প্রতিটি phase-এর input, analysis, report ও output আলাদা দেখায়; আগের সম্পূর্ণ report পরের phase-এর input হয়। শেষে final synthesis JSON হিসেবে download করা যায়।
 
 ## Phase chain
 
@@ -17,16 +17,18 @@
 
 ## Run locally
 
-Requires Python 3.12.
+Requires Python 3.11 or newer locally (Vercel builds use Python 3.12). On Windows, double-click `start_local.bat`; it creates a project-local `.venv`, installs only the packages in `requirements.txt`, starts the Python server on loopback, and opens the dashboard in your browser. Keep the terminal open while using the dashboard and press **Ctrl+C** there to stop it. It does not install packages globally or install the separate Nmap/Nuclei-style tools from the reference project.
+
+To start it manually on any platform:
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
-uvicorn app:app --reload
+python run_local.py
 ```
 
-Open `http://127.0.0.1:8000`. Add the generated TXT record at `_webrecon.<domain>` with value `recon-verification=<token>`, wait for DNS propagation, then confirm authorization and provider sharing in the UI. The domain is sent to crt.sh only after the explicit provider consent.
+The launcher selects an available `127.0.0.1` port and opens it automatically. The dashboard is reachable only from this PC. Add the generated TXT record at `_webrecon.<domain>` with value `recon-verification=<token>`, wait for DNS propagation, then confirm authorization and provider sharing in the UI. The domain is sent to crt.sh only after the explicit provider consent.
 
 ## Deploy to Vercel
 
