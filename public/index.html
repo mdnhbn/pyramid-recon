@@ -32,7 +32,7 @@
             <p class="hero-lede">Phase 0-এর report Phase 1-এ যাবে, তারপর এক ধাপ করে Phase 9 পর্যন্ত। প্রতিটি report আলাদা থাকবে—শেষে পাবেন একসাথে final summary.</p>
             <div class="hero-stats">
               <div><strong>10</strong><span>serial phases</span></div>
-              <div><strong>1</strong><span>verified domain</span></div>
+              <div><strong>1</strong><span>authorized root domain</span></div>
               <div><strong>0</strong><span>exploit requests</span></div>
             </div>
           </div>
@@ -47,29 +47,18 @@
 
           <div class="workbench-grid">
             <aside class="setup-panel">
-              <div class="panel-heading"><span class="step-index">A</span><div><h3>Scope ও অনুমতি</h3><p>Active ধাপের আগে ownership proof লাগবে</p></div></div>
+              <div class="panel-heading"><span class="step-index">A</span><div><h3>Scope ও অনুমতি</h3><p>Domain দিন, অনুমতি ও provider সম্মতি নিশ্চিত করুন</p></div></div>
               <form id="scan-form" novalidate autocomplete="off">
                 <label class="field-label" for="domain">Root domain</label>
                 <div class="domain-input-wrap"><span aria-hidden="true">⌕</span><input id="domain" name="domain" type="text" inputmode="url" autocomplete="off" placeholder="example.com" maxlength="253" required><span class="input-suffix">DOMAIN</span></div>
-                <p class="field-hint">URL নয়—শুধু আপনার অনুমোদিত root domain লিখুন। Subdomain শুধু passive inventory-তে থাকবে; সরাসরি HTTP request কেবল verified root-এ যাবে।</p>
-
-                <div class="challenge-box">
-                  <div class="challenge-title"><span class="challenge-icon">⌁</span><div><strong>DNS ownership proof</strong><small>একবার verify করুন, তারপর scan চালান</small></div></div>
-                  <button type="button" id="make-challenge" class="button button-secondary button-small">TXT instruction তৈরি</button>
-                  <div id="challenge-instructions" class="challenge-instructions" hidden>
-                    <p>DNS provider-এ এই TXT record যোগ করুন:</p>
-                    <div class="copy-row"><code id="txt-name"></code><button type="button" class="copy-button" id="copy-name" aria-label="Copy record name">Copy</button></div>
-                    <div class="copy-row"><code id="txt-value"></code><button type="button" class="copy-button" id="copy-value" aria-label="Copy record value">Copy</button></div>
-                    <p class="tiny-note">DNS propagate হলে run করুন। Assessment চলাকালীন record রাখুন।</p>
-                  </div>
-                </div>
+                <p class="field-hint">URL নয়—শুধু root domain লিখুন। শুধু owner বা লিখিত অনুমতিপ্রাপ্ত domain scan করুন। Subdomain passive inventory-তে থাকবে; সরাসরি HTTP request কেবল এই root domain-এ যাবে।</p>
 
                 <div class="consent-list">
-                  <label class="check-row"><input id="authorization" type="checkbox"><span class="custom-check"></span><span><strong>আমি এই root domain-এর owner, অথবা লিখিত অনুমতি আছে</strong><small>এই tool সরাসরি শুধু DNS-verified root domain-এ request পাঠাবে।</small></span></label>
-                  <label class="check-row"><input id="provider-consent" type="checkbox"><span class="custom-check"></span><span><strong>Public provider-এ domain query করতে সম্মতি দিচ্ছি</strong><small>Certificate transparency lookup-এর জন্য domain crt.sh-এ যাবে; DNS query resolver-এর কাছে যাবে।</small></span></label>
+                  <label class="check-row"><input id="authorization" type="checkbox"><span class="custom-check"></span><span><strong>আমি এই root domain-এর owner, অথবা লিখিত অনুমতি আছে</strong><small>আমি কেবল অনুমোদিত scope-এ এই low-impact assessment চালাব।</small></span></label>
+                  <label class="check-row"><input id="provider-consent" type="checkbox"><span class="custom-check"></span><span><strong>Public provider-এ domain query করতে সম্মতি দিচ্ছি</strong><small>Certificate-transparency lookup-এর জন্য domain crt.sh-এ যাবে; DNS name resolver-এর কাছে যাবে।</small></span></label>
                 </div>
 
-                <div class="limit-note"><span class="shield-icon" aria-hidden="true">◈</span><span><strong>Low-impact limits</strong><small>সর্বোচ্চ ৪টি DNS name · HTTP request শুধু verified root-এ · redirect follow নয় · কোনো exploit নয়</small></span></div>
+                <div class="limit-note"><span class="shield-icon" aria-hidden="true">◈</span><span><strong>Low-impact limits</strong><small>সর্বোচ্চ ৪টি DNS name · HTTP request শুধু entered root-এ · redirect follow নয় · কোনো exploit নয়</small></span></div>
                 <div class="form-actions"><button id="run-button" type="submit" class="button button-primary" disabled><span class="button-orbit" aria-hidden="true">↘</span><span>Serial recon শুরু</span><span class="button-arrow" aria-hidden="true">→</span></button><button type="button" id="stop-button" class="button button-stop" hidden>Stop run</button></div>
                 <p class="form-footnote">প্রতিটি phase শুধু আগের phase-এর report পাওয়ার পর শুরু হবে। Findings স্বয়ংক্রিয়ভাবে যাচাইকৃত vulnerability হিসেবে দেখানো হবে না।</p>
               </form>
@@ -90,7 +79,7 @@
                 <div id="final-summary" class="final-summary"></div>
                 <details class="json-details"><summary>সম্পূর্ণ final report দেখুন</summary><pre id="final-json"></pre></details>
               </section>
-              <div class="empty-state" id="empty-state"><span class="empty-icon">⌁</span><strong>Report stream এখানে দেখা যাবে</strong><p>Scope ও TXT proof তৈরি করে সম্মতি দিন, তারপর run শুরু করুন।</p></div>
+              <div class="empty-state" id="empty-state"><span class="empty-icon">⌁</span><strong>Report stream এখানে দেখা যাবে</strong><p>অনুমোদিত root domain লিখে দুইটি সম্মতি দিন, তারপর run শুরু করুন।</p></div>
             </section>
           </div>
         </section>
@@ -108,4 +97,3 @@
     </div>
   </body>
 </html>
-

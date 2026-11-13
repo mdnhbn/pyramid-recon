@@ -1,9 +1,9 @@
 (() => {
   const PHASES = [
-    ["Scope & Setup", "Permission and ownership verification"],
+    ["Scope & Setup", "Permission and scope confirmation"],
     ["Passive Recon & OSINT", "Certificate transparency lookup"],
     ["Subdomain Discovery", "Public DNS resolution"],
-    ["Live Host Verification", "One homepage request to the verified root domain"],
+    ["Live Host Verification", "One homepage request to the confirmed root domain"],
     ["Technology Fingerprinting", "Analyze observed page and response headers"],
     ["Content & Directory Discovery", "Read robots.txt and sitemap.xml only"],
     ["URL & Endpoint Discovery", "Extract same-origin links from collected pages"],
@@ -16,8 +16,6 @@
   const domainInput = document.getElementById("domain");
   const authorization = document.getElementById("authorization");
   const providerConsent = document.getElementById("provider-consent");
-  const makeChallengeButton = document.getElementById("make-challenge");
-  const challengeInstructions = document.getElementById("challenge-instructions");
   const runButton = document.getElementById("run-button");
   const stopButton = document.getElementById("stop-button");
   const clearHistoryButton = document.getElementById("clear-history");
@@ -36,8 +34,6 @@
   const toast = document.getElementById("toast");
   const backendStatus = document.getElementById("backend-status");
 
-  let challengeToken = "";
-  let challengeDomain = "";
   let backendAvailable = false;
   let activeController = null;
   let currentReports = [];
@@ -58,23 +54,8 @@
 
   function updateReadyState() {
     const domain = normalizeInputDomain(domainInput.value);
-    const challengeReady = Boolean(challengeToken && challengeDomain === domain);
-    const ready = Boolean(domain && challengeReady && authorization.checked && providerConsent.checked && backendAvailable && !activeController);
+    const ready = Boolean(domain && authorization.checked && providerConsent.checked && backendAvailable && !activeController);
     runButton.disabled = !ready;
-    if (challengeToken && challengeDomain !== domain) {
-      challengeInstructions.hidden = true;
-      challengeToken = "";
-      challengeDomain = "";
-      makeChallengeButton.textContent = "TXT instruction তৈরি";
-    }
-  }
-
-  function makeToken() {
-    const bytes = new Uint8Array(24);
-    crypto.getRandomValues(bytes);
-    let binary = "";
-    for (const byte of bytes) binary += String.fromCharCode(byte);
-    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
   }
 
   function toastMessage(message) {
@@ -99,15 +80,6 @@
       backendStatus.lastElementChild.textContent = "Python backend unavailable · retry";
     }
     updateReadyState();
-  }
-
-  async function copyText(value) {
-    try {
-      await navigator.clipboard.writeText(value);
-      toastMessage("Copied to clipboard");
-    } catch {
-      toastMessage("Copy blocked by browser; select the value manually");
-    }
   }
 
   function node(tag, className, text) {
@@ -282,8 +254,13 @@
 
   async function runScan() {
     const domain = normalizeInputDomain(domainInput.value);
-    if (!domain || !challengeToken || challengeDomain !== domain) {
-      toastMessage("Domain-এর জন্য TXT instruction তৈরি করুন");
+    if (!domain) {
+      toastMessage("শুধু সঠিক root domain দিন, যেমন example.com");
+      domainInput.focus();
+      return;
+    }
+    if (!authorization.checked || !providerConsent.checked) {
+      toastMessage("চালানোর আগে অনুমতি ও public-provider সম্মতি দিন");
       return;
     }
     resetCards();
@@ -299,7 +276,6 @@
         headers: { "Content-Type": "application/json", "Accept": "application/x-ndjson" },
         body: JSON.stringify({
           domain,
-          challenge_token: challengeToken,
           authorization_confirmed: authorization.checked,
           provider_consent: providerConsent.checked,
         }),
@@ -369,24 +345,6 @@
       localStorage.removeItem(STORAGE_KEY);
     }
   }
-
-  makeChallengeButton.addEventListener("click", () => {
-    const domain = normalizeInputDomain(domainInput.value);
-    if (!domain) {
-      toastMessage("শুধু সঠিক domain দিন, যেমন example.com");
-      domainInput.focus();
-      return;
-    }
-    challengeDomain = domain;
-    challengeToken = makeToken();
-    document.getElementById("txt-name").textContent = `_webrecon.${domain}`;
-    document.getElementById("txt-value").textContent = `recon-verification=${challengeToken}`;
-    document.getElementById("copy-name").onclick = () => copyText(`_webrecon.${domain}`);
-    document.getElementById("copy-value").onclick = () => copyText(`recon-verification=${challengeToken}`);
-    challengeInstructions.hidden = false;
-    makeChallengeButton.textContent = "নতুন token তৈরি";
-    updateReadyState();
-  });
 
   domainInput.addEventListener("input", updateReadyState);
   authorization.addEventListener("change", updateReadyState);

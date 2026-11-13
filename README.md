@@ -1,13 +1,13 @@
 # Pyramid Recon
 
-বাংলা-প্রথম, Python-ভিত্তিক local-first web reconnaissance dashboard। একটি domain-এর DNS TXT ownership proof ও অনুমতির সম্মতি যাচাই করে Phase 0 → 9 ধারাবাহিকভাবে চালায়। প্রতিটি phase-এর input, analysis, report ও output আলাদা দেখায়; আগের সম্পূর্ণ report পরের phase-এর input হয়। শেষে final synthesis JSON হিসেবে download করা যায়।
+বাংলা-প্রথম, Python-ভিত্তিক local-first web reconnaissance dashboard। একটি domain-এর syntax, user-এর authorization attestation ও public-provider consent যাচাই করে Phase 0 → 9 ধারাবাহিকভাবে চালায়। প্রতিটি phase-এর input, analysis, report ও output আলাদা দেখায়; আগের সম্পূর্ণ report পরের phase-এর input হয়। শেষে final synthesis JSON হিসেবে download করা যায়।
 
 ## Phase chain
 
 0. Scope & Setup
 1. Passive Recon & OSINT — crt.sh certificate-transparency query
 2. Subdomain Discovery — public DNS resolution
-3. Live Host Verification — one bounded homepage GET to the verified root domain only
+3. Live Host Verification — one bounded homepage GET to the confirmed root domain only
 4. Technology Fingerprinting — observed response/page hints
 5. Content & Directory Discovery — root `robots.txt` and `sitemap.xml` only
 6. URL & Endpoint Discovery — same-scope homepage links and sitemap entries
@@ -28,7 +28,7 @@ python -m pip install -r requirements.txt
 python run_local.py
 ```
 
-The launcher selects an available `127.0.0.1` port and opens it automatically. The dashboard is reachable only from this PC. Add the generated TXT record at `_webrecon.<domain>` with value `recon-verification=<token>`, wait for DNS propagation, then confirm authorization and provider sharing in the UI. The domain is sent to crt.sh only after the explicit provider consent.
+The launcher selects an available `127.0.0.1` port and opens it automatically. The dashboard is reachable only from this PC. Enter only a domain you own or have written authorization to assess, confirm the authorization attestation and provider-sharing checkbox, then start the run. The domain is sent to crt.sh only after explicit provider consent.
 
 ## Deploy to Vercel
 
@@ -40,7 +40,7 @@ The workflow executes as one serial, streaming request. Vercel does not keep an 
 
 ## Scope and safety
 
-- One TXT-verified root domain per run; certificate-transparency subdomains are inventory only and are never contacted over HTTP.
+- One user-confirmed root domain per run; certificate-transparency subdomains are inventory only and are never contacted over HTTP.
 - Maximum four DNS names, three same-host JavaScript files, bounded timeouts and response sizes.
 - DNS results must be public IP addresses. Connections are pinned to a resolved public address; redirects are never followed.
 - Query parameter values are stripped from reports; JavaScript files with query strings are skipped.

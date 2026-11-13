@@ -1,4 +1,4 @@
-"""Authorized, low-impact reconnaissance workflow for one verified domain."""
+"""Authorized, low-impact reconnaissance workflow for one confirmed domain scope."""
 
 from __future__ import annotations
 
@@ -7,7 +7,6 @@ import http.client
 import ipaddress
 import json
 import re
-import secrets
 import socket
 import ssl
 import time
@@ -38,10 +37,10 @@ SOCKET_TIMEOUT = 2.5
 USER_AGENT = "PyramidRecon/0.1 (+authorized, low-impact assessment)"
 
 PHASES = [
-    (0, "Scope & Setup", "Permission and ownership verification"),
+    (0, "Scope & Setup", "Permission and scope confirmation"),
     (1, "Passive Recon & OSINT", "Certificate transparency lookup"),
     (2, "Subdomain Discovery", "Public DNS resolution"),
-    (3, "Live Host Verification", "One homepage request to the verified root domain"),
+    (3, "Live Host Verification", "One homepage request to the confirmed root domain"),
     (4, "Technology Fingerprinting", "Analyze the observed page and response headers"),
     (5, "Content & Directory Discovery", "Read robots.txt and sitemap.xml only"),
     (6, "URL & Endpoint Discovery", "Extract same-origin links from collected pages"),
@@ -67,7 +66,6 @@ app.add_middleware(
 
 class ScanRequest(BaseModel):
     domain: str = Field(min_length=4, max_length=253)
-    challenge_token: str = Field(min_length=20, max_length=100)
     authorization_confirmed: bool
     provider_consent: bool
 
@@ -110,7 +108,7 @@ def favicon():
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "app": "Pyramid Recon", "phases": len(PHASES), "mode": "verified-root, passive-first"}
+    return {"status": "ok", "app": "Pyramid Recon", "phases": len(PHASES), "mode": "authorized-root, passive-first"}
 
 
 def utc_now() -> str:
@@ -167,25 +165,9 @@ def resolve_public_addresses(host: str) -> list[str]:
     return sorted(addresses)
 
 
-def verify_txt(domain: str, challenge_token: str) -> bool:
-    if not re.fullmatch(r"[A-Za-z0-9_-]{20,100}", challenge_token):
-        return False
-    record_name = f"_webrecon.{domain}"
-    expected = f"recon-verification={challenge_token}"
-    try:
-        answer = _resolver().resolve(record_name, "TXT", lifetime=2.2, search=False)
-        for record in answer:
-            value = b"".join(record.strings).decode("utf-8", "replace").strip().strip('"')
-            if secrets.compare_digest(value, expected):
-                return True
-    except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer, dns.resolver.NoNameservers, dns.exception.Timeout):
-        return False
-    return False
-
-
 def _host_addresses(host: str, expected_scope: str | None) -> list[str]:
     if expected_scope is not None and not in_scope(host, expected_scope):
-        raise ValueError("The host is outside the verified scope.")
+        raise ValueError("The host is outside the confirmed scope.")
     if expected_scope is None and host != "crt.sh":
         raise ValueError("Outbound provider access is restricted.")
     addresses = resolve_public_addresses(host)
@@ -370,21 +352,13 @@ def phase0(ctx: dict[str, Any], previous: dict[str, Any] | None) -> dict[str, An
         return make_report(0, started, "blocked", None, {"domain": domain}, "The authorization attestation was not confirmed.", {"scope": domain}, ["Confirm that you own the domain or have written authorization for this assessment."])
     if not request.provider_consent:
         return make_report(0, started, "blocked", None, {"domain": domain}, "The external data-source disclosure was not accepted.", {"scope": domain}, ["Consent is required because the passive lookup sends the domain to crt.sh."])
-    verified = verify_txt(domain, request.challenge_token)
-    if not verified:
-        return make_report(0, started, "blocked", None, {"domain": domain}, "The DNS TXT ownership proof did not match.", {
-            "scope": domain,
-            "required_record_name": f"_webrecon.{domain}",
-            "required_record_value": f"recon-verification={request.challenge_token}",
-            "next_step": "Publish this TXT record, wait for DNS propagation, then run again.",
-        }, ["No target HTTP request was sent. Keep the TXT record available while running the assessment."])
-    ctx["verified"] = True
-    return make_report(0, started, "completed", None, {"domain": domain, "authorization_confirmed": True, "provider_consent": True}, "The domain syntax, authorization attestation, external-provider consent, and DNS TXT ownership proof passed.", {
+    ctx["scope_confirmed"] = True
+    return make_report(0, started, "completed", None, {"domain": domain, "authorization_confirmed": True, "provider_consent": True}, "The domain syntax, authorization attestation, and external-provider consent passed.", {
         "root_domain": domain,
-        "scope_rule": f"Direct HTTP requests are limited to the verified root domain {domain}; discovered subdomains remain passive inventory only.",
-        "ownership_proof": "DNS TXT verified",
+        "scope_rule": f"Direct HTTP requests are limited to the confirmed root domain {domain}; discovered subdomains remain passive inventory only.",
+        "authorization": "The user confirmed ownership or written authorization in the interface.",
         "provider_disclosure": "The domain will be queried through crt.sh for certificate-transparency records.",
-        "limits": {"max_hosts": MAX_HOSTS, "max_js_files": MAX_JS_FILES, "redirects_followed": 0, "scan_concurrency": 1},
+        "limits": {"max_hosts": MAX_HOSTS, "max_js_files": MAX_JS_FILES, "redirects_followed": 0, "scan_concurrency": 1, "direct_http_scope": "root domain only"},
     })
 
 
@@ -420,9 +394,9 @@ def phase1(ctx: dict[str, Any], previous: dict[str, Any]) -> dict[str, Any]:
             if len(names) >= MAX_CT_NAMES:
                 break
     except Exception as exc:
-        warnings.append(f"Certificate-transparency lookup unavailable ({type(exc).__name__}); continuing with the verified root domain.")
+        warnings.append(f"Certificate-transparency lookup unavailable ({type(exc).__name__}); continuing with the confirmed root domain.")
     ordered = [domain] + sorted(name for name in names if name != domain)
-    return make_report(1, started, "completed_with_warnings" if warnings else "completed", 0, handoff_report(previous), "Analyzed Phase 0's verified scope and collected certificate-transparency hostnames, discarding entries outside the root-domain suffix.", {
+    return make_report(1, started, "completed_with_warnings" if warnings else "completed", 0, handoff_report(previous), "Analyzed Phase 0's confirmed scope and collected certificate-transparency hostnames, discarding entries outside the root-domain suffix.", {
         "provider": "crt.sh",
         "provider_shared_domain": domain,
         "candidate_subdomains": ordered[:MAX_CT_NAMES],
@@ -446,7 +420,7 @@ def phase2(ctx: dict[str, Any], previous: dict[str, Any]) -> dict[str, Any]:
             continue
         except Exception:
             continue
-    warnings = [] if resolved else ["No public DNS addresses were found in the verified scope; active phases will have no host targets."]
+    warnings = [] if resolved else ["No public DNS addresses were found in the confirmed scope; active phases will have no host targets."]
     ctx["resolved_hosts"] = resolved
     return make_report(2, started, "completed" if resolved else "completed_with_warnings", 1, handoff_report(previous), "Analyzed Phase 1's candidate list and resolved a small, deduplicated set of names through public DNS. This lookup does not authorize direct HTTP requests to subdomains.", {
         "resolved_hosts": resolved,
@@ -474,7 +448,7 @@ def phase3(ctx: dict[str, Any], previous: dict[str, Any]) -> dict[str, Any]:
             errors.append(f"{host}: {type(exc).__name__}")
     warnings = ["Some public hosts did not respond within the low-impact request timeout."] if errors else []
     ctx["live_hosts"] = hosts
-    return make_report(3, started, "completed_with_warnings" if errors else "completed", 2, handoff_report(previous), "Analyzed Phase 2 DNS results and sent at most one bounded homepage GET to the verified root domain. Discovered subdomains were not contacted; redirects were not followed.", {
+    return make_report(3, started, "completed_with_warnings" if errors else "completed", 2, handoff_report(previous), "Analyzed Phase 2 DNS results and sent at most one bounded homepage GET to the confirmed root domain. Discovered subdomains were not contacted; redirects were not followed.", {
         "live_hosts": hosts,
         "live_count": len(hosts),
         "not_responding": errors,
@@ -721,7 +695,7 @@ async def scan(request: Request, payload: ScanRequest):
         for index, runner in enumerate(PHASE_RUNNERS):
             if index and await request.is_disconnected():
                 return
-            if index > 0 and not ctx.get("verified"):
+            if index > 0 and not ctx.get("scope_confirmed"):
                 break
             try:
                 report = await asyncio.to_thread(runner, ctx, previous)
@@ -738,5 +712,4 @@ async def scan(request: Request, payload: ScanRequest):
             yield json.dumps({"type": "final", "report": result}, ensure_ascii=False, separators=(",", ":")) + "\n"
 
     return StreamingResponse(events(), media_type="application/x-ndjson", headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
-
 
