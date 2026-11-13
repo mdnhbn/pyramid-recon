@@ -15,8 +15,9 @@
     <polygon points="250,620 1150,620 1160,700 240,700" fill="#b397cb"/><text x="277" y="656" class="n">6</text><text x="324" y="656" class="label">URL &amp; Endpoint Discovery</text><text x="324" y="681" class="hint">same-scope links · deduplicated URLs</text>
     <polygon points="210,710 1190,710 1200,790 200,790" fill="#ca91b7"/><text x="237" y="746" class="n">7</text><text x="284" y="746" class="label">JavaScript Analysis</text><text x="284" y="771" class="hint">endpoint clues · secrets redacted</text>
     <polygon points="170,800 1230,800 1240,880 160,880" fill="#da96a0"/><text x="197" y="836" class="n">8</text><text x="244" y="836" class="label">Parameter Discovery</text><text x="244" y="861" class="hint">names only · no payload testing</text>
-    <polygon points="130,890 1270,890 1280,970 120,970" fill="#e7aa7c"/><text x="157" y="926" class="n">9</text><text x="204" y="926" class="label">Vulnerability Review</text><text x="204" y="951" class="hint">passive indicators · human validation</text>
+    <polygon points="130,890 1270,890 1280,970 120,970" fill="#e7aa7c"/><text x="157" y="926" class="n">9</text><text x="204" y="926" class="label">Passive Security Review</text><text x="204" y="951" class="hint">passive indicators · human validation</text>
   </g>
   <rect x="150" y="1000" width="1100" height="67" rx="15" fill="#102c36" stroke="#285950"/>
   <text x="700" y="1041" text-anchor="middle" fill="#a8ead8" font-size="17" font-weight="700">Each phase report becomes the next phase input · stop on scope or safety failure</text>
 </svg>
+
