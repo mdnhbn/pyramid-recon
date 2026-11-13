@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import http.client
+import io
 import ipaddress
 import json
 import re
@@ -12,17 +13,25 @@ import ssl
 import time
 import uuid
 from datetime import datetime, timezone
+from html import escape as html_escape
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
 import dns.resolver
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from docx import Document
+from docx.shared import Pt, RGBColor
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_LEFT
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -33,6 +42,7 @@ MAX_CT_NAMES = 20
 MAX_URLS = 60
 MAX_JS_FILES = 3
 MAX_BODY_BYTES = 180_000
+MAX_EXPORT_BYTES = 2_000_000
 SOCKET_TIMEOUT = 2.5
 USER_AGENT = "PyramidRecon/0.1 (+authorized, low-impact assessment)"
 
@@ -46,7 +56,7 @@ PHASES = [
     (6, "URL & Endpoint Discovery", "Extract same-origin links from collected pages"),
     (7, "JavaScript Analysis", "Inspect up to three same-scope JavaScript files"),
     (8, "Parameter Discovery", "Inventory parameter names without values"),
-    (9, "Vulnerability Scanning", "Review passive security configuration indicators"),
+    (9, "Passive Security Review", "Review observed security configuration indicators"),
 ]
 
 app = FastAPI(
@@ -68,6 +78,183 @@ class ScanRequest(BaseModel):
     domain: str = Field(min_length=4, max_length=253)
     authorization_confirmed: bool
     provider_consent: bool
+
+
+def _export_report(report: Any) -> dict[str, Any]:
+    if not isinstance(report, dict) or not isinstance(report.get("domain"), str):
+        raise HTTPException(status_code=422, detail="A final report with a domain is required.")
+    if not isinstance(report.get("summary"), dict) or not isinstance(report.get("phase_reports"), list):
+        raise HTTPException(status_code=422, detail="The report is missing its summary or phase reports.")
+    if len(report["phase_reports"]) > len(PHASES):
+        raise HTTPException(status_code=422, detail="The report contains too many phase records.")
+    return report
+
+
+async def _read_export_request(request: Request) -> dict[str, Any]:
+    raw = await request.body()
+    if len(raw) > MAX_EXPORT_BYTES:
+        raise HTTPException(status_code=413, detail="The report is too large to export.")
+    try:
+        body = json.loads(raw)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        raise HTTPException(status_code=400, detail="The export request must contain valid JSON.")
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=422, detail="The export request must be a JSON object.")
+    return _export_report(body.get("report"))
+
+
+def _export_filename(report: dict[str, Any], extension: str) -> str:
+    safe_domain = re.sub(r"[^A-Za-z0-9.-]+", "-", report["domain"]).strip(".-")[:180] or "report"
+    return f"pyramid-recon-{safe_domain}-{datetime.now(timezone.utc):%Y-%m-%d}.{extension}"
+
+
+def _report_value(value: Any) -> str:
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False, indent=2)
+    return str(value if value is not None else "—")
+
+
+def _pdf_escape(value: Any) -> str:
+    # The built-in PDF font covers Western text. Keep arbitrary target-supplied
+    # Unicode from breaking a report; the DOCX export preserves full Unicode.
+    raw = str(value).encode("latin-1", "replace").decode("latin-1")
+    safe = "".join(char if char == "\n" or 32 <= ord(char) <= 126 or 160 <= ord(char) <= 255 else "?" for char in raw)
+    return html_escape(safe)
+
+
+def _build_pdf(report: dict[str, Any]) -> bytes:
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=letter,
+        rightMargin=48,
+        leftMargin=48,
+        topMargin=48,
+        bottomMargin=48,
+        title=f"Pyramid Recon - {report['domain']}",
+        author="Pyramid Recon",
+    )
+    base = getSampleStyleSheet()
+    title_style = ParagraphStyle("ReconTitle", parent=base["Title"], fontName="Helvetica-Bold", fontSize=19, leading=24, textColor=colors.HexColor("#143c47"), alignment=TA_LEFT)
+    heading_style = ParagraphStyle("ReconHeading", parent=base["Heading2"], fontName="Helvetica-Bold", fontSize=12, leading=16, textColor=colors.HexColor("#146e65"), spaceBefore=12, spaceAfter=5)
+    body_style = ParagraphStyle("ReconBody", parent=base["BodyText"], fontName="Helvetica", fontSize=9, leading=13, textColor=colors.HexColor("#263b42"), spaceAfter=5)
+    code_style = ParagraphStyle("ReconCode", parent=body_style, fontName="Courier", fontSize=7.5, leading=10, leftIndent=8, wordWrap="CJK")
+    story: list[Any] = [Paragraph("Pyramid Recon - Final Report", title_style), Spacer(1, 8)]
+    summary = report["summary"]
+    rows = [
+        ["Domain", report["domain"]],
+        ["Overall status", summary.get("overall_status", "unknown")],
+        ["Phases completed / reported", f"{summary.get('phases_completed', 0)} / {summary.get('phases_reported', 0)}"],
+        ["Live hosts", str(summary.get("live_hosts", 0))],
+        ["URLs collected", str(summary.get("urls_collected", 0))],
+        ["Items for manual review", str(summary.get("findings_for_manual_review", 0))],
+        ["Created", str(report.get("created_at", "—"))],
+    ]
+    table = Table([[Paragraph(_pdf_escape(cell), body_style) for cell in row] for row in rows], colWidths=[155, 330], hAlign="LEFT")
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#e8f2f1")),
+        ("TEXTCOLOR", (0, 0), (-1, -1), colors.HexColor("#263b42")),
+        ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#c7d7d9")),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 7),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 7),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    story.extend([table, Paragraph("Scope and limitations", heading_style)])
+    for note in summary.get("limitations", []):
+        story.append(Paragraph("- " + _pdf_escape(note), body_style))
+
+    story.append(Paragraph("Final findings", heading_style))
+    findings = report.get("final_findings", [])
+    if findings:
+        for finding in findings:
+            story.append(Paragraph(
+                f"<b>{_pdf_escape(str(finding.get('severity', 'review')).upper())}: {_pdf_escape(finding.get('title', 'Review item'))}</b><br/>"
+                f"Asset: {_pdf_escape(finding.get('asset', '-'))}<br/>"
+                f"{_pdf_escape(finding.get('evidence', 'Manual review required.'))}<br/>"
+                f"Confidence: {_pdf_escape(finding.get('confidence', ''))}",
+                body_style,
+            ))
+    else:
+        story.append(Paragraph("No Phase 9 findings were produced in this run.", body_style))
+
+    story.append(Paragraph("Phase-by-phase reports", heading_style))
+    for phase in report.get("phase_reports", []):
+        if not isinstance(phase, dict):
+            continue
+        story.append(Paragraph(
+            f"Phase {_pdf_escape(phase.get('phase', '?'))} - {_pdf_escape(phase.get('name', 'Unnamed phase'))}",
+            heading_style,
+        ))
+        story.append(Paragraph(
+            f"Status: {_pdf_escape(phase.get('status', 'unknown'))} - "
+            f"Duration: {_pdf_escape(phase.get('duration_ms', '-'))} ms<br/>"
+            f"Purpose: {_pdf_escape(phase.get('purpose', '-'))}<br/>"
+            f"Analysis: {_pdf_escape(phase.get('analysis', '-'))}",
+            body_style,
+        ))
+        if phase.get("warnings"):
+            story.append(Paragraph("Warnings: " + _pdf_escape("; ".join(map(str, phase["warnings"]))), body_style))
+        output_text = _report_value(phase.get("outputs", {}))
+        for line in output_text.splitlines() or ["{}"]:
+            story.append(Paragraph(_pdf_escape(line) or "&nbsp;", code_style))
+    doc.build(story)
+    return buffer.getvalue()
+
+
+def _build_docx(report: dict[str, Any]) -> bytes:
+    document = Document()
+    document.core_properties.title = f"Pyramid Recon — {report['domain']}"
+    document.core_properties.author = "Pyramid Recon"
+    document.add_heading("Pyramid Recon — Final Report", 0)
+    document.add_paragraph(f"Domain: {report['domain']}")
+    document.add_paragraph(f"Created: {report.get('created_at', '—')}")
+    summary = report["summary"]
+    table = document.add_table(rows=0, cols=2)
+    table.style = "Light Shading Accent 1"
+    summary_rows = [
+        ("Overall status", summary.get("overall_status", "unknown")),
+        ("Phases completed / reported", f"{summary.get('phases_completed', 0)} / {summary.get('phases_reported', 0)}"),
+        ("Live hosts", summary.get("live_hosts", 0)),
+        ("URLs collected", summary.get("urls_collected", 0)),
+        ("Items for manual review", summary.get("findings_for_manual_review", 0)),
+    ]
+    for label, value in summary_rows:
+        cells = table.add_row().cells
+        cells[0].text = str(label)
+        cells[1].text = str(value)
+    document.add_heading("Scope and limitations", level=1)
+    for note in summary.get("limitations", []):
+        document.add_paragraph(str(note), style="List Bullet")
+    document.add_heading("Final findings", level=1)
+    findings = report.get("final_findings", [])
+    if findings:
+        for finding in findings:
+            document.add_heading(f"{str(finding.get('severity', 'review')).upper()}: {finding.get('title', 'Review item')}", level=2)
+            document.add_paragraph(f"Asset: {finding.get('asset', '—')}")
+            document.add_paragraph(str(finding.get("evidence", "Manual review required.")))
+            document.add_paragraph(f"Confidence: {finding.get('confidence', '')}")
+    else:
+        document.add_paragraph("No Phase 9 findings were produced in this run.")
+    document.add_heading("Phase-by-phase reports", level=1)
+    for phase in report.get("phase_reports", []):
+        if not isinstance(phase, dict):
+            continue
+        document.add_heading(f"Phase {phase.get('phase', '?')} — {phase.get('name', 'Unnamed phase')}", level=2)
+        document.add_paragraph(f"Status: {phase.get('status', 'unknown')} · Duration: {phase.get('duration_ms', '—')} ms")
+        document.add_paragraph(f"Purpose: {phase.get('purpose', '—')}")
+        document.add_paragraph(f"Analysis: {phase.get('analysis', '—')}")
+        for warning in phase.get("warnings", []):
+            document.add_paragraph(f"Warning: {warning}", style="List Bullet")
+        output = document.add_paragraph()
+        run = output.add_run(_report_value(phase.get("outputs", {})))
+        run.font.name = "Consolas"
+        run.font.size = Pt(8)
+        run.font.color.rgb = RGBColor(55, 75, 83)
+    stream = io.BytesIO()
+    document.save(stream)
+    return stream.getvalue()
 
 
 @app.middleware("http")
@@ -109,6 +296,30 @@ def favicon():
 @app.get("/api/health")
 def health():
     return {"status": "ok", "app": "Pyramid Recon", "phases": len(PHASES), "mode": "authorized-root, passive-first"}
+
+
+@app.post("/api/report/pdf")
+async def export_pdf(request: Request):
+    report = await _read_export_request(request)
+    data = _build_pdf(report)
+    filename = _export_filename(report, "pdf")
+    return Response(
+        content=data,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"', "Cache-Control": "no-store"},
+    )
+
+
+@app.post("/api/report/docx")
+async def export_docx(request: Request):
+    report = await _read_export_request(request)
+    data = _build_docx(report)
+    filename = _export_filename(report, "docx")
+    return Response(
+        content=data,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"', "Cache-Control": "no-store"},
+    )
 
 
 def utc_now() -> str:
@@ -712,4 +923,5 @@ async def scan(request: Request, payload: ScanRequest):
             yield json.dumps({"type": "final", "report": result}, ensure_ascii=False, separators=(",", ":")) + "\n"
 
     return StreamingResponse(events(), media_type="application/x-ndjson", headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
+
 

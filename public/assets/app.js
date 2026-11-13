@@ -9,7 +9,7 @@
     ["URL & Endpoint Discovery", "Extract same-origin links from collected pages"],
     ["JavaScript Analysis", "Inspect up to three same-scope JavaScript files"],
     ["Parameter Discovery", "Inventory parameter names without values"],
-    ["Vulnerability Scanning", "Review passive security configuration indicators"],
+    ["Passive Security Review", "Review observed security configuration indicators"],
   ];
   const STORAGE_KEY = "pyramidReconRunsV1";
   const form = document.getElementById("scan-form");
@@ -25,6 +25,8 @@
   const finalSummary = document.getElementById("final-summary");
   const finalJson = document.getElementById("final-json");
   const downloadButton = document.getElementById("download-report");
+  const downloadPdfButton = document.getElementById("download-pdf");
+  const downloadDocxButton = document.getElementById("download-docx");
   const progressLabel = document.getElementById("progress-label");
   const progressValue = document.getElementById("progress-value");
   const progressBar = document.getElementById("progress-bar");
@@ -33,6 +35,7 @@
   const reportHint = document.getElementById("report-hint");
   const toast = document.getElementById("toast");
   const backendStatus = document.getElementById("backend-status");
+  const themeToggle = document.getElementById("theme-toggle");
 
   let backendAvailable = false;
   let activeController = null;
@@ -63,6 +66,21 @@
     toast.classList.add("show");
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => toast.classList.remove("show"), 2500);
+  }
+
+  function setTheme(theme) {
+    const light = theme === "light";
+    document.documentElement.dataset.theme = light ? "light" : "dark";
+    themeToggle.textContent = light ? "☾ Dark" : "☼ Light";
+    themeToggle.setAttribute("aria-label", `Switch to ${light ? "dark" : "light"} theme`);
+    themeToggle.title = `Switch to ${light ? "dark" : "light"} theme`;
+    try { localStorage.setItem("pyramidReconTheme", light ? "light" : "dark"); } catch { /* Theme still works for this page. */ }
+  }
+
+  function setExportButtonsDisabled(disabled) {
+    downloadButton.disabled = disabled;
+    downloadPdfButton.disabled = disabled;
+    downloadDocxButton.disabled = disabled;
   }
 
   async function checkBackend() {
@@ -151,7 +169,7 @@
       handoff.append(node("span", "", `Phase ${report.input.from_phase} report`), node("b", "", "→"), node("span", "", `Phase ${report.phase} input`));
       details.append(handoff);
     } else {
-      details.append(node("div", "handoff", "Initial input · domain, authorization and DNS proof"));
+      details.append(node("div", "handoff", "Initial input · domain and authorization"));
     }
     details.append(node("p", "analysis", report.analysis || "No analysis note."));
 
@@ -216,7 +234,7 @@
     statePill.classList.remove("running");
     statePill.classList.toggle("error", summary.overall_status === "blocked" || summary.overall_status === "partial");
     stateLabel.textContent = summary.overall_status === "completed" ? "Run completed" : `Run ${summary.overall_status || "ended"}`;
-    downloadButton.disabled = false;
+    setExportButtonsDisabled(false);
   }
 
   function saveRun(report) {
@@ -269,7 +287,7 @@
     stopButton.hidden = false;
     runButton.disabled = true;
     markRunning(0);
-    downloadButton.disabled = true;
+    setExportButtonsDisabled(true);
     try {
       const response = await fetch("/api/scan", {
         method: "POST",
@@ -358,7 +376,7 @@
     resetCards();
     statePill.classList.remove("error", "running");
     stateLabel.textContent = "Ready to configure";
-    downloadButton.disabled = true;
+    setExportButtonsDisabled(true);
     toastMessage("Saved browser history cleared");
   });
   downloadButton.addEventListener("click", () => {
@@ -374,8 +392,49 @@
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   });
 
+  async function downloadOfficeReport(button, format) {
+    if (!currentFinal) return;
+    button.disabled = true;
+    try {
+      const response = await fetch(`/api/report/${format}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": format === "pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.wordprocessingml.document" },
+        body: JSON.stringify({ report: currentFinal }),
+      });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.detail || error.error || `Export failed (${response.status})`);
+      }
+      const blob = await response.blob();
+      const date = new Date().toISOString().slice(0, 10);
+      const extension = format === "pdf" ? "pdf" : "docx";
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `pyramid-recon-${currentFinal.domain}-${date}.${extension}`;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    } catch (error) {
+      toastMessage(error.message || "Could not export the report");
+    } finally {
+      button.disabled = !currentFinal;
+    }
+  }
+
+  downloadPdfButton.addEventListener("click", () => downloadOfficeReport(downloadPdfButton, "pdf"));
+  downloadDocxButton.addEventListener("click", () => downloadOfficeReport(downloadDocxButton, "docx"));
+  themeToggle.addEventListener("click", () => setTheme(document.documentElement.dataset.theme === "light" ? "dark" : "light"));
+
+  try {
+    setTheme(localStorage.getItem("pyramidReconTheme") || "dark");
+  } catch {
+    setTheme("dark");
+  }
+
   resetCards();
   restoreLastRun();
   updateReadyState();
   checkBackend();
 })();
+

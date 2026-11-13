@@ -20,7 +20,8 @@
         <div class="topbar-right">
           <span class="privacy-pill"><span class="pulse-dot"></span> Results stay in this browser</span>
           <button class="backend-pill" id="backend-status" type="button" data-state="checking" aria-live="polite" title="Python backend connection status"><span class="backend-dot"></span><span>Python backend যাচাই হচ্ছে…</span></button>
-          <a class="source-link" href="https://github.com/mdnhbn/pyramid-recon" target="_blank" rel="noreferrer">Source <span aria-hidden="true">↗</span></a>
+          <a class="source-link" href="#methods">Backend methods</a>
+          <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Switch to light theme" title="Switch to light theme">☼ <span>Light</span></button>
         </div>
       </header>
 
@@ -75,7 +76,7 @@
               </div>
               <div id="phase-list" class="phase-list" aria-live="polite"></div>
               <section id="final-card" class="final-card" hidden aria-live="polite">
-                <div class="final-heading"><span class="final-check" aria-hidden="true">✓</span><div><span class="section-kicker">FINAL SYNTHESIS</span><h3>চূড়ান্ত ফলাফল</h3></div><button id="download-report" type="button" class="button button-secondary button-small">Download JSON</button></div>
+                <div class="final-heading"><span class="final-check" aria-hidden="true">✓</span><div><span class="section-kicker">FINAL SYNTHESIS</span><h3>চূড়ান্ত ফলাফল</h3></div><div class="export-actions"><button id="download-report" type="button" class="button button-secondary button-small">JSON</button><button id="download-pdf" type="button" class="button button-secondary button-small">PDF</button><button id="download-docx" type="button" class="button button-secondary button-small">DOCX</button></div></div>
                 <div id="final-summary" class="final-summary"></div>
                 <details class="json-details"><summary>সম্পূর্ণ final report দেখুন</summary><pre id="final-json"></pre></details>
               </section>
@@ -89,6 +90,23 @@
           <div class="sequence-visual" aria-label="Report handoff visual"><div class="seq-chip"><small>PHASE 0</small><strong>Scope report</strong></div><span class="seq-arrow">↘</span><div class="seq-chip seq-chip-active"><small>PHASE 1</small><strong>OSINT report</strong></div><span class="seq-arrow">↘</span><div class="seq-chip"><small>PHASE 2–8</small><strong>Analysis chain</strong></div><span class="seq-arrow">↘</span><div class="seq-chip seq-chip-final"><small>PHASE 9</small><strong>Final synthesis</strong></div></div>
         </section>
 
+        <details class="methods-section" id="methods" open>
+          <summary><span><span class="section-kicker">BACKEND INVENTORY</span><strong>এই ১০টি phase-এ backend-এ আসলে কী চলে?</strong></span><span class="methods-summary-note">built-in Python + public DNS/CT lookup</span></summary>
+          <p class="methods-intro">নিচের তালিকাটি code-এ থাকা বাস্তব পদ্ধতি। এখানে আলাদা Nmap, Nuclei, Nikto, Subfinder, DNSRecon, theHarvester, Photon বা Arjun binary/tool suite install করা নেই। Phase 9 হলো passive header review—পূর্ণ vulnerability scanner নয়।</p>
+          <div class="method-grid">
+            <article class="method-card"><span>PHASE 0</span><h3>Scope & consent</h3><p>Python-এর domain validation এবং UI-তে দেওয়া authorization/provider consent যাচাই। কোনো network tool চলে না।</p></article>
+            <article class="method-card"><span>PHASE 1</span><h3>Certificate transparency</h3><p>Custom bounded HTTP helper দিয়ে <code>crt.sh</code> JSON lookup। এটি আলাদা OSINT scanner নয়।</p></article>
+            <article class="method-card"><span>PHASE 2</span><h3>DNS lookup</h3><p><code>dnspython</code> দিয়ে সর্বোচ্চ ৪টি name-এর A/AAAA রেকর্ড resolve; public IP ছাড়া বাদ।</p></article>
+            <article class="method-card"><span>PHASE 3</span><h3>Root homepage check</h3><p>Python <code>socket</code>, <code>ssl</code> ও <code>http.client</code>; resolved public IP-তে pin করে root-এর একটি GET, redirect অনুসরণ নয়।</p></article>
+            <article class="method-card"><span>PHASE 4</span><h3>Technology hints</h3><p>Built-in <code>html.parser</code>, response header ও কয়েকটি HTML marker মিলিয়ে সম্ভাব্য fingerprint।</p></article>
+            <article class="method-card"><span>PHASE 5</span><h3>Robots & sitemap</h3><p>একই সীমিত HTTP helper দিয়ে root-এর শুধু <code>/robots.txt</code> ও <code>/sitemap.xml</code> পড়া হয়; path brute force হয় না।</p></article>
+            <article class="method-card"><span>PHASE 6</span><h3>Same-scope URL collection</h3><p><code>html.parser</code> ও <code>urllib.parse</code> দিয়ে homepage link/sitemap URL সংগ্রহ; off-scope link fetch নয়।</p></article>
+            <article class="method-card"><span>PHASE 7</span><h3>JavaScript hints</h3><p>সর্বোচ্চ ৩টি same-host JS file GET, Python regex দিয়ে endpoint clue; সম্ভাব্য secret value report-এ redact।</p></article>
+            <article class="method-card"><span>PHASE 8</span><h3>Parameter names</h3><p><code>urllib.parse</code> দিয়ে সংগৃহীত URL থেকে নাম inventory; values রাখা বা test payload পাঠানো হয় না।</p></article>
+            <article class="method-card"><span>PHASE 9</span><h3>Passive security review</h3><p>আগে দেখা response header ও redacted JS indicator দেখে manual-review finding। Port scan/exploit বা injection test নয়।</p></article>
+          </div>
+        </details>
+
         <section class="safety-strip"><div class="safety-mark" aria-hidden="true">✓</div><div><strong>অনুমোদিত scope-এর জন্য তৈরি</strong><p>লিখিত অনুমতি ছাড়া চালাবেন না। Toolটি port scan, form submission, payload injection, credential guessing, WAF bypass, exploitation বা data extraction করে না। Report এই browser-এর local storage-এ থাকে।</p></div><span class="safety-label">SAFE BY DEFAULT</span></section>
       </main>
 
@@ -97,3 +115,4 @@
     </div>
   </body>
 </html>
+
