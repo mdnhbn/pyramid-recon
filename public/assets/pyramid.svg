@@ -6,7 +6,7 @@
   <text x="700" y="46" text-anchor="middle" class="cap">SERIAL REPORT HANDOFF · 0 → 9</text>
   <g opacity=".35" stroke="#b0c9d6" stroke-width="2" stroke-dasharray="5 8"><path d="M700 90v890"/></g>
   <g>
-    <polygon points="490,80 910,80 920,160 480,160" fill="#68ddc5"/><text x="515" y="116" class="n">0</text><text x="562" y="116" class="label">Scope &amp; Setup</text><text x="562" y="141" class="hint">permission · DNS proof · limits</text>
+    <polygon points="490,80 910,80 920,160 480,160" fill="#68ddc5"/><text x="515" y="116" class="n">0</text><text x="562" y="116" class="label">Scope &amp; Setup</text><text x="562" y="141" class="hint">permission · scope · limits</text>
     <polygon points="450,170 950,170 960,250 440,250" fill="#67d4c1"/><text x="477" y="206" class="n">1</text><text x="524" y="206" class="label">Passive Recon &amp; OSINT</text><text x="524" y="231" class="hint">public records · certificate data</text>
     <polygon points="410,260 990,260 1000,340 400,340" fill="#62c8c3"/><text x="437" y="296" class="n">2</text><text x="484" y="296" class="label">Subdomain Discovery</text><text x="484" y="321" class="hint">public DNS · exact root scope</text>
     <polygon points="370,350 1030,350 1040,430 360,430" fill="#69b8cf"/><text x="397" y="386" class="n">3</text><text x="444" y="386" class="label">Live Host Verification</text><text x="444" y="411" class="hint">bounded homepage requests</text>
