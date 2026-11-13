@@ -2,21 +2,25 @@
 
 বাংলা-প্রথম, Python-ভিত্তিক local-first web reconnaissance dashboard। একটি domain-এর syntax, user-এর authorization attestation ও public-provider consent যাচাই করে Phase 0 → 9 ধারাবাহিকভাবে চালায়। প্রতিটি phase-এর input, analysis, report ও output আলাদা দেখায়; আগের সম্পূর্ণ report পরের phase-এর input হয়। শেষে final synthesis JSON হিসেবে download করা যায়।
 
-## Built-in backend methods
+## Tool integration model
 
-The nine numbered analysis phases plus Phase 0 use Python's standard library, `dnspython`, one bounded `crt.sh` certificate-transparency lookup, and small regular-expression/HTML parsers. The project does **not** bundle Nmap, Nuclei, Nikto, Subfinder, DNSRecon, theHarvester, Photon, or Arjun. Phase 9 reviews observed response headers and redacted JavaScript indicators for manual review; it is not a full vulnerability scanner.
+The reference checklist includes external online services and independent Go, Rust, and Python command-line programs. They are not Python modules and are not silently installed. `GET /api/tools` lists the reference tools, detects common binaries on the local PATH, and explains whether Pyramid Recon runs, replaces, or deliberately skips each one. Phase reports include a `tools_used` list.
+
+The backend provides bounded Python equivalents for DNS record lookup, HTTP probing, technology hints, fixed-path checks, same-host crawling, historical URL collection, JavaScript pattern review, and parameter-name extraction. If installed locally, Subfinder and Amass may run in passive-only mode during Phase 2, with a 12-second timeout and the confirmed root domain as their only input. They are never installed by the scanner. Their passive providers may receive the domain.
+
+Censys/Shodan/BuiltWith API access is not configured; DNSDumpster/ViewDNS are listed as manual services. Puredns/MassDNS wordlist brute force, ffuf/feroxbuster/dirsearch wordlists, Arjun active parameter probing, Nuclei templates, SQLMap/Ghauri/Dalfox payload tests, and Nmap port scanning are not run. `httpx`, gowitness, Wappalyzer, WhatWeb, Katana, gau, waybackurls, hakrawler, SecretFinder, jsluice, and ParamSpider are mapped to the built-in methods documented below; their separate binaries are not claimed as installed or invoked.
 
 ## Phase chain
 
 0. Scope & Setup
-1. Passive Recon & OSINT — crt.sh certificate-transparency query
-2. Subdomain Discovery — public DNS resolution
-3. Live Host Verification — one bounded homepage GET to the confirmed root domain only
+1. Passive Recon & OSINT — crt.sh certificate-transparency query and A/AAAA/MX/NS/TXT summary; TXT values are not returned
+2. Subdomain Discovery — public DNS resolution, plus passive Subfinder/Amass when installed locally
+3. Live Host Verification — one bounded homepage GET to the confirmed root host only
 4. Technology Fingerprinting — observed response/page hints
-5. Content & Directory Discovery — root `robots.txt` and `sitemap.xml` only
-6. URL & Endpoint Discovery — same-scope homepage links and sitemap entries
-7. JavaScript Analysis — at most three same-host JS files; sensitive values redacted
-8. Parameter Discovery — names only; values and test payloads are not sent
+5. Content & Directory Discovery — root `robots.txt` and `sitemap.xml`, then at most eight fixed root-host GET checks; robots-disallowed paths are skipped
+6. URL & Endpoint Discovery — same-scope links, passive Internet Archive CDX URLs, and a crawler capped at eight HTML pages on the exact root host
+7. JavaScript Analysis — at most three same-host JS files from crawled pages; sensitive values redacted
+8. Parameter Discovery — names only from observed and archived URLs; values and test payloads are not sent
 9. Passive Security Review — observed response-header indicators for human review
 
 ## Run locally
@@ -32,7 +36,7 @@ python -m pip install -r requirements.txt
 python run_local.py
 ```
 
-The launcher selects an available `127.0.0.1` port and opens it automatically. The dashboard is reachable only from this PC. Enter only a domain you own or have written authorization to assess, confirm the authorization attestation and provider-sharing checkbox, then start the run. The domain is sent to crt.sh only after explicit provider consent.
+The launcher selects an available `127.0.0.1` port and opens it automatically. The dashboard is reachable only from this PC. Enter only a domain you own or have written authorization to assess, confirm the authorization attestation and provider-sharing checkbox, then start the run. The domain may be sent to crt.sh and the Internet Archive after explicit provider consent. If Subfinder or Amass is installed, its passive sources may also receive the domain. DNS queries go to the configured resolver.
 
 ## Deploy to Vercel
 
@@ -44,11 +48,12 @@ The workflow executes as one serial, streaming request. Vercel does not keep an 
 
 ## Scope and safety
 
-- One user-confirmed root domain per run; certificate-transparency subdomains are inventory only and are never contacted over HTTP.
+- One user-confirmed root domain per run; discovered subdomains are inventory only and are never contacted over HTTP.
 - Maximum four DNS names, three same-host JavaScript files, bounded timeouts and response sizes.
+- At most eight fixed-path checks and eight HTML pages, sent serially to the exact root host; robots-disallowed paths are skipped.
 - DNS results must be public IP addresses. Connections are pinned to a resolved public address; redirects are never followed.
 - Query parameter values are stripped from reports; JavaScript files with query strings are skipped.
-- No port scanning, path brute force, form submission, payload injection, exploitation, password guessing, WAF evasion, database dump, or data extraction.
+- No wordlist brute force, port scanning, form submission, payload injection, exploitation, password guessing, WAF evasion, database dump, or data extraction.
 - Phase 9 records configuration indicators, not confirmed vulnerabilities. A human must validate findings.
 - Use only on assets you own or have written authorization to assess.
 
@@ -58,4 +63,3 @@ The workflow executes as one serial, streaming request. Vercel does not keep an 
 - `public/` — responsive UI, phase stream, pyramid and favicon.
 - `outputs/` — initial Bengali build instruction and full-size pyramid concept.
 - `vercel.json` — security headers and execution cap.
-

@@ -7,9 +7,13 @@ import http.client
 import io
 import ipaddress
 import json
+import platform
 import re
+import shutil
 import socket
 import ssl
+import subprocess
+import sys
 import time
 import uuid
 from datetime import datetime, timezone
@@ -41,9 +45,23 @@ MAX_HOSTS = 4
 MAX_CT_NAMES = 20
 MAX_URLS = 60
 MAX_JS_FILES = 3
+MAX_PATH_PROBES = 8
+MAX_CRAWL_PAGES = 8
+MAX_HTTP_REQUESTS = 1 + 2 + MAX_PATH_PROBES + (MAX_CRAWL_PAGES - 1) + MAX_JS_FILES
+PATH_PROBE_LIST = (
+    "/.well-known/security.txt",
+    "/security.txt",
+    "/openapi.json",
+    "/openapi.yaml",
+    "/swagger.json",
+    "/api-docs",
+    "/login",
+    "/admin",
+)
 MAX_BODY_BYTES = 180_000
 MAX_EXPORT_BYTES = 2_000_000
 SOCKET_TIMEOUT = 2.5
+REQUEST_SPACING_SECONDS = 0.25
 USER_AGENT = "PyramidRecon/0.1 (+authorized, low-impact assessment)"
 
 PHASES = [
@@ -52,12 +70,68 @@ PHASES = [
     (2, "Subdomain Discovery", "Public DNS resolution"),
     (3, "Live Host Verification", "One homepage request to the confirmed root domain"),
     (4, "Technology Fingerprinting", "Analyze the observed page and response headers"),
-    (5, "Content & Directory Discovery", "Read robots.txt and sitemap.xml only"),
-    (6, "URL & Endpoint Discovery", "Extract same-origin links from collected pages"),
+    (5, "Content & Directory Discovery", "Read site indexes and check a fixed path list"),
+    (6, "URL & Endpoint Discovery", "Archive lookup and bounded same-host crawling"),
     (7, "JavaScript Analysis", "Inspect up to three same-scope JavaScript files"),
     (8, "Parameter Discovery", "Inventory parameter names without values"),
     (9, "Passive Security Review", "Review observed security configuration indicators"),
 ]
+
+# Tool names come from the user's Recon for Web Application checklist. The
+# reference lists several independent Go/Rust/Python programs; this Python app
+# uses bounded native equivalents where practical and reports exactly which
+# external programs are present or deliberately not invoked.
+TOOL_CATALOG = [
+    {"phase": 0, "tool": "Go", "mode": "reference prerequisite", "binary": "go", "integration": "Not required by this Python backend."},
+    {"phase": 0, "tool": "Python 3 / pipx", "mode": "runtime", "integration": "Python runs the backend; pipx is not required."},
+    {"phase": 0, "tool": "Git / curl / wget", "mode": "reference prerequisite", "integration": "Not invoked by scan jobs."},
+    {"phase": 1, "tool": "Censys", "mode": "passive provider", "integration": "API credentials and provider adapter are not configured."},
+    {"phase": 1, "tool": "Shodan", "mode": "passive provider", "integration": "API credentials and provider adapter are not configured."},
+    {"phase": 1, "tool": "DNSDumpster", "mode": "online service", "integration": "Manual service; no automated lookup is made."},
+    {"phase": 1, "tool": "Whois", "mode": "registration lookup", "integration": "No third-party WHOIS service is queried."},
+    {"phase": 1, "tool": "ViewDNS", "mode": "online service", "integration": "Manual service; no automated lookup is made."},
+    {"phase": 1, "tool": "crt.sh", "mode": "passive CT lookup", "integration": "Integrated; bounded certificate-transparency lookup."},
+    {"phase": 1, "tool": "dnspython", "mode": "DNS records", "integration": "Integrated; A/AAAA/MX/NS/TXT metadata."},
+    {"phase": 2, "tool": "Subfinder", "mode": "passive CLI", "binary": "subfinder", "optional_runner": True, "integration": "Runs passive enumeration only when installed locally."},
+    {"phase": 2, "tool": "dnsx", "mode": "DNS resolution", "integration": "dnspython performs bounded A/AAAA resolution; dnsx binary is not required."},
+    {"phase": 2, "tool": "Amass", "mode": "passive CLI", "binary": "amass", "optional_runner": True, "integration": "Runs enum --passive only when installed locally."},
+    {"phase": 2, "tool": "Puredns", "mode": "active DNS brute force", "binary": "puredns", "integration": "Not invoked; wordlist brute force is outside this low-impact profile."},
+    {"phase": 2, "tool": "MassDNS", "mode": "bulk DNS scanner", "binary": "massdns", "integration": "Not invoked; high-volume resolver is outside this profile."},
+    {"phase": 3, "tool": "httpx", "mode": "HTTP probing", "binary": "pd-httpx", "integration": "Python makes a single pinned root homepage GET; ProjectDiscovery httpx is not invoked."},
+    {"phase": 3, "tool": "gowitness", "mode": "screenshots", "binary": "gowitness", "integration": "Not invoked; no screenshots or report server are created."},
+    {"phase": 4, "tool": "Wappalyzer", "mode": "browser extension", "integration": "Not queried by the backend."},
+    {"phase": 4, "tool": "WhatWeb", "mode": "technology fingerprinting", "binary": "whatweb", "integration": "Bounded Python header/HTML fingerprint hints are used instead."},
+    {"phase": 4, "tool": "BuiltWith", "mode": "passive provider", "integration": "API credentials and provider adapter are not configured."},
+    {"phase": 5, "tool": "ffuf", "mode": "directory fuzzing", "binary": "ffuf", "integration": "Not invoked; replaced with eight fixed, low-rate GET checks."},
+    {"phase": 5, "tool": "feroxbuster", "mode": "recursive directory scan", "binary": "feroxbuster", "integration": "Not invoked; no recursion or wordlist brute force."},
+    {"phase": 5, "tool": "dirsearch", "mode": "directory scan", "binary": "dirsearch", "integration": "Not invoked; no wordlist brute force."},
+    {"phase": 6, "tool": "Katana", "mode": "web crawler", "binary": "katana", "integration": "A Python same-host crawler is capped at eight HTML pages."},
+    {"phase": 6, "tool": "gau", "mode": "historical URL lookup", "binary": "gau", "integration": "Wayback CDX lookup is integrated; gau binary is not invoked."},
+    {"phase": 6, "tool": "waybackurls", "mode": "historical URL lookup", "binary": "waybackurls", "integration": "Wayback CDX lookup is integrated; binary is not invoked."},
+    {"phase": 6, "tool": "hakrawler", "mode": "web crawler", "binary": "hakrawler", "integration": "The capped Python same-host crawler is used instead."},
+    {"phase": 7, "tool": "SecretFinder", "mode": "JavaScript pattern scan", "binary": "SecretFinder", "integration": "Python pattern checks run on at most three same-host JS files; values are redacted."},
+    {"phase": 7, "tool": "jsluice", "mode": "JavaScript static analysis", "binary": "jsluice", "integration": "Python URL/secret pattern extraction is used instead."},
+    {"phase": 8, "tool": "Arjun", "mode": "active parameter probing", "binary": "arjun", "integration": "Not invoked; no hidden-parameter payloads are sent."},
+    {"phase": 8, "tool": "ParamSpider", "mode": "historical parameter lookup", "binary": "paramspider", "integration": "Parameter names are extracted from observed and archived URLs."},
+    {"phase": 9, "tool": "Nuclei", "mode": "template vulnerability scanner", "binary": "nuclei", "integration": "Templates are not run; Phase 9 reviews observed configuration only."},
+    {"phase": 9, "tool": "SQLMap", "mode": "SQL injection / extraction", "binary": "sqlmap", "integration": "Not invoked; injection and database extraction are disabled."},
+    {"phase": 9, "tool": "Ghauri", "mode": "SQL injection / extraction", "binary": "ghauri", "integration": "Not invoked; injection and database extraction are disabled."},
+    {"phase": 9, "tool": "Dalfox", "mode": "XSS payload scanner", "binary": "dalfox", "integration": "Not invoked; injection payloads are disabled."},
+    {"phase": 9, "tool": "Nmap", "mode": "port / service scanner", "binary": "nmap", "integration": "Not invoked; network port scanning is outside this profile."},
+]
+
+PHASE_TOOL_EXECUTION = {
+    0: ["Python domain validation", "authorization and provider-consent gate"],
+    1: ["crt.sh certificate-transparency lookup", "dnspython A/AAAA/MX/NS/TXT metadata"],
+    2: ["dnspython public A/AAAA resolver", "Subfinder passive CLI when installed", "Amass passive CLI when installed"],
+    3: ["pinned Python HTTPS/HTTP homepage request"],
+    4: ["Python HTMLParser and response-header fingerprints"],
+    5: ["robots.txt and sitemap.xml", "eight fixed same-root GET checks (no wordlist)"],
+    6: ["Wayback CDX passive URL lookup", "Python crawler capped at eight same-host HTML pages"],
+    7: ["Python endpoint/credential-pattern review with secret values redacted"],
+    8: ["Python parameter-name extraction from observed and archived URLs"],
+    9: ["passive response-header and redacted-JavaScript review"],
+}
 
 app = FastAPI(
     title="Pyramid Recon",
@@ -191,7 +265,8 @@ def _build_pdf(report: dict[str, Any]) -> bytes:
             f"Status: {_pdf_escape(phase.get('status', 'unknown'))} - "
             f"Duration: {_pdf_escape(phase.get('duration_ms', '-'))} ms<br/>"
             f"Purpose: {_pdf_escape(phase.get('purpose', '-'))}<br/>"
-            f"Analysis: {_pdf_escape(phase.get('analysis', '-'))}",
+            f"Analysis: {_pdf_escape(phase.get('analysis', '-'))}<br/>"
+            f"Tools: {_pdf_escape(', '.join(map(str, phase.get('tools_used', []))))}",
             body_style,
         ))
         if phase.get("warnings"):
@@ -245,6 +320,7 @@ def _build_docx(report: dict[str, Any]) -> bytes:
         document.add_paragraph(f"Status: {phase.get('status', 'unknown')} · Duration: {phase.get('duration_ms', '—')} ms")
         document.add_paragraph(f"Purpose: {phase.get('purpose', '—')}")
         document.add_paragraph(f"Analysis: {phase.get('analysis', '—')}")
+        document.add_paragraph(f"Tools used / policy: {', '.join(map(str, phase.get('tools_used', [])))}")
         for warning in phase.get("warnings", []):
             document.add_paragraph(f"Warning: {warning}", style="List Bullet")
         output = document.add_paragraph()
@@ -295,7 +371,17 @@ def favicon():
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "app": "Pyramid Recon", "phases": len(PHASES), "mode": "authorized-root, passive-first"}
+    return {"status": "ok", "app": "Pyramid Recon", "phases": len(PHASES), "tools": len(TOOL_CATALOG), "mode": "authorized-root, passive-first"}
+
+
+@app.get("/api/tools")
+def list_tools():
+    return {
+        "runtime": {"python": platform.python_version(), "platform": platform.system()},
+        "phases": len(PHASES),
+        "tools": tool_inventory(),
+        "limits": {"max_http_requests": MAX_HTTP_REQUESTS, "request_spacing_seconds": REQUEST_SPACING_SECONDS, "max_path_probes": MAX_PATH_PROBES, "max_crawl_pages": MAX_CRAWL_PAGES, "max_js_files": MAX_JS_FILES},
+    }
 
 
 @app.post("/api/report/pdf")
@@ -376,15 +462,125 @@ def resolve_public_addresses(host: str) -> list[str]:
     return sorted(addresses)
 
 
+def _public_dns_record_summary(domain: str) -> dict[str, Any]:
+    resolver = _resolver()
+    summary: dict[str, Any] = {}
+    for record_type in ("A", "AAAA", "MX", "NS", "TXT"):
+        try:
+            answer = resolver.resolve(domain, record_type, lifetime=2.2, search=False)
+            records = [record.to_text()[:300] for record in answer]
+        except Exception:
+            records = []
+        if record_type in ("A", "AAAA"):
+            public_values: list[str] = []
+            omitted = 0
+            for value in records:
+                try:
+                    address = ipaddress.ip_address(value)
+                    if address.is_global and not address.is_multicast and not address.is_reserved:
+                        public_values.append(address.compressed)
+                    else:
+                        omitted += 1
+                except ValueError:
+                    omitted += 1
+            summary[record_type] = {"count": len(public_values), "values": public_values[:8], "non_public_omitted": omitted}
+        elif record_type == "TXT":
+            categories: set[str] = set()
+            for value in records:
+                lowered = value.lower()
+                if "v=spf1" in lowered:
+                    categories.add("SPF")
+                elif "v=dmarc1" in lowered:
+                    categories.add("DMARC")
+                elif "v=dkim1" in lowered or "_domainkey" in lowered:
+                    categories.add("DKIM")
+                else:
+                    categories.add("other public TXT record")
+            summary[record_type] = {"count": len(records), "categories": sorted(categories), "values_returned": False}
+        else:
+            summary[record_type] = {"count": len(records), "values": records[:8]}
+    return summary
+
+
 def _host_addresses(host: str, expected_scope: str | None) -> list[str]:
     if expected_scope is not None and not in_scope(host, expected_scope):
         raise ValueError("The host is outside the confirmed scope.")
-    if expected_scope is None and host != "crt.sh":
+    if expected_scope is None and host not in {"crt.sh", "web.archive.org"}:
         raise ValueError("Outbound provider access is restricted.")
     addresses = resolve_public_addresses(host)
     if not addresses:
         raise OSError("The host has no public DNS address.")
     return addresses
+
+
+def tool_inventory() -> list[dict[str, Any]]:
+    """Return the reference checklist with honest local availability signals."""
+    inventory: list[dict[str, Any]] = []
+    for source in TOOL_CATALOG:
+        item = dict(source)
+        binary = item.pop("binary", None)
+        item.pop("optional_runner", None)
+        if binary:
+            item["installed"] = shutil.which(binary) is not None
+            item["availability"] = "installed" if item["installed"] else "not installed"
+        elif item["tool"] in {"crt.sh", "dnspython"}:
+            item["installed"] = True
+            item["availability"] = "integrated"
+        elif item["tool"] == "Python 3 / pipx":
+            item["installed"] = True
+            item["availability"] = f"Python {sys.version_info.major}.{sys.version_info.minor} runtime"
+        else:
+            item["installed"] = None
+            item["availability"] = "manual / not configured"
+        inventory.append(item)
+    return inventory
+
+
+def _run_optional_passive_enumerator(tool: str, domain: str) -> dict[str, Any]:
+    """Run only fixed passive commands; never accepts user-supplied arguments."""
+    executable = shutil.which(tool)
+    if not executable:
+        return {"tool": tool, "status": "not_installed", "hosts": [], "host_count": 0}
+    if tool == "subfinder":
+        command = [executable, "-d", domain, "-silent"]
+    elif tool == "amass":
+        command = [executable, "enum", "-passive", "-d", domain]
+    else:
+        return {"tool": tool, "status": "not_enabled", "hosts": [], "host_count": 0}
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=12,
+            check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        names: set[str] = set()
+        for line in completed.stdout.splitlines()[:1000]:
+            candidate = line.strip().lower().lstrip("*.").rstrip(".")
+            try:
+                candidate = normalize_domain(candidate)
+            except ValueError:
+                continue
+            if in_scope(candidate, domain):
+                names.add(candidate)
+            if len(names) >= MAX_CT_NAMES:
+                break
+        ordered = sorted(names)
+        return {
+            "tool": tool,
+            "status": "completed" if completed.returncode == 0 else "nonzero_exit",
+            "hosts": ordered,
+            "host_count": len(ordered),
+            "exit_code": completed.returncode,
+        }
+    except subprocess.TimeoutExpired:
+        return {"tool": tool, "status": "timed_out", "hosts": [], "host_count": 0}
+    except OSError as exc:
+        return {"tool": tool, "status": "failed", "hosts": [], "host_count": 0, "error": type(exc).__name__}
 
 
 def safe_get(host: str, path: str, *, expected_scope: str | None = None, max_bytes: int = MAX_BODY_BYTES) -> dict[str, Any]:
@@ -534,6 +730,7 @@ def make_report(
         "duration_ms": round((time.monotonic() - started) * 1000),
         "input": {"from_phase": input_from, "report": input_payload},
         "analysis": analysis,
+        "tools_used": PHASE_TOOL_EXECUTION[phase],
         "outputs": outputs,
         "warnings": warnings or [],
     }
@@ -562,14 +759,15 @@ def phase0(ctx: dict[str, Any], previous: dict[str, Any] | None) -> dict[str, An
     if not request.authorization_confirmed:
         return make_report(0, started, "blocked", None, {"domain": domain}, "The authorization attestation was not confirmed.", {"scope": domain}, ["Confirm that you own the domain or have written authorization for this assessment."])
     if not request.provider_consent:
-        return make_report(0, started, "blocked", None, {"domain": domain}, "The external data-source disclosure was not accepted.", {"scope": domain}, ["Consent is required because the passive lookup sends the domain to crt.sh."])
+        return make_report(0, started, "blocked", None, {"domain": domain}, "The external data-source disclosure was not accepted.", {"scope": domain}, ["Consent is required because passive lookups may share the domain with crt.sh, the Internet Archive, and configured passive enumeration sources."])
     ctx["scope_confirmed"] = True
     return make_report(0, started, "completed", None, {"domain": domain, "authorization_confirmed": True, "provider_consent": True}, "The domain syntax, authorization attestation, and external-provider consent passed.", {
         "root_domain": domain,
         "scope_rule": f"Direct HTTP requests are limited to the confirmed root domain {domain}; discovered subdomains remain passive inventory only.",
         "authorization": "The user confirmed ownership or written authorization in the interface.",
-        "provider_disclosure": "The domain will be queried through crt.sh for certificate-transparency records.",
-        "limits": {"max_hosts": MAX_HOSTS, "max_js_files": MAX_JS_FILES, "redirects_followed": 0, "scan_concurrency": 1, "direct_http_scope": "root domain only"},
+        "provider_disclosure": "The domain may be queried through crt.sh and the Internet Archive; installed Subfinder or Amass passive sources may also receive the domain. DNS queries go to the configured resolver.",
+        "optional_passive_cli": {"subfinder_installed": shutil.which("subfinder") is not None, "amass_installed": shutil.which("amass") is not None},
+        "limits": {"max_hosts": MAX_HOSTS, "max_http_requests": MAX_HTTP_REQUESTS, "max_path_probes": MAX_PATH_PROBES, "max_crawl_pages": MAX_CRAWL_PAGES, "max_js_files": MAX_JS_FILES, "request_spacing_seconds": REQUEST_SPACING_SECONDS, "redirects_followed": 0, "scan_concurrency": 1, "direct_http_scope": "confirmed root host only"},
     })
 
 
@@ -606,10 +804,12 @@ def phase1(ctx: dict[str, Any], previous: dict[str, Any]) -> dict[str, Any]:
                 break
     except Exception as exc:
         warnings.append(f"Certificate-transparency lookup unavailable ({type(exc).__name__}); continuing with the confirmed root domain.")
+    dns_records = _public_dns_record_summary(domain)
     ordered = [domain] + sorted(name for name in names if name != domain)
     return make_report(1, started, "completed_with_warnings" if warnings else "completed", 0, handoff_report(previous), "Analyzed Phase 0's confirmed scope and collected certificate-transparency hostnames, discarding entries outside the root-domain suffix.", {
         "provider": "crt.sh",
         "provider_shared_domain": domain,
+        "dns_record_summary": dns_records,
         "candidate_subdomains": ordered[:MAX_CT_NAMES],
         "candidate_count": len(ordered[:MAX_CT_NAMES]),
     }, warnings)
@@ -618,7 +818,13 @@ def phase1(ctx: dict[str, Any], previous: dict[str, Any]) -> dict[str, Any]:
 def phase2(ctx: dict[str, Any], previous: dict[str, Any]) -> dict[str, Any]:
     started = time.monotonic()
     domain = ctx["domain"]
-    candidates = previous["outputs"].get("candidate_subdomains", [domain])
+    external_runs = [
+        _run_optional_passive_enumerator("subfinder", domain),
+        _run_optional_passive_enumerator("amass", domain),
+    ]
+    candidates = list(previous["outputs"].get("candidate_subdomains", [domain]))
+    for run in external_runs:
+        candidates.extend(run.get("hosts", []))
     selected = [domain] + [host for host in candidates if host != domain and in_scope(host, domain)]
     selected = list(dict.fromkeys(selected))[:MAX_HOSTS]
     resolved: list[dict[str, Any]] = []
@@ -633,9 +839,10 @@ def phase2(ctx: dict[str, Any], previous: dict[str, Any]) -> dict[str, Any]:
             continue
     warnings = [] if resolved else ["No public DNS addresses were found in the confirmed scope; active phases will have no host targets."]
     ctx["resolved_hosts"] = resolved
-    return make_report(2, started, "completed" if resolved else "completed_with_warnings", 1, handoff_report(previous), "Analyzed Phase 1's candidate list and resolved a small, deduplicated set of names through public DNS. This lookup does not authorize direct HTTP requests to subdomains.", {
+    return make_report(2, started, "completed" if resolved else "completed_with_warnings", 1, handoff_report(previous), "Analyzed Phase 1's candidate list, optionally merged passive Subfinder/Amass results when those binaries are installed, then resolved a small deduplicated set through public DNS. Puredns wordlist brute force and direct HTTP to discovered subdomains are not run.", {
         "resolved_hosts": resolved,
         "resolved_count": len(resolved),
+        "passive_cli_runs": external_runs,
         "cap": MAX_HOSTS,
     }, warnings)
 
@@ -704,15 +911,36 @@ def phase5(ctx: dict[str, Any], previous: dict[str, Any]) -> dict[str, Any]:
     except Exception as exc:
         warnings.append(f"robots.txt was not retrieved ({type(exc).__name__}).")
     try:
+        time.sleep(REQUEST_SPACING_SECONDS)
         sitemap_result = safe_get(root, "/sitemap.xml", expected_scope=root, max_bytes=100_000)
     except Exception as exc:
         warnings.append(f"sitemap.xml was not retrieved ({type(exc).__name__}).")
     paths: set[str] = set()
+    disallowed_paths: set[str] = set()
     if robots_result and robots_result["status_code"] < 400:
         for line in robots_result["body"].splitlines():
             key, _, value = line.partition(":")
-            if key.strip().lower() in ("allow", "disallow") and value.strip().startswith("/"):
+            directive = key.strip().lower()
+            if directive in ("allow", "disallow") and value.strip().startswith("/"):
                 paths.add(value.strip()[:400])
+                if directive == "disallow":
+                    disallowed_paths.add(value.strip()[:400])
+    probe_results: list[dict[str, Any]] = []
+    for path in PATH_PROBE_LIST:
+        if any(rule and path.startswith(rule) for rule in disallowed_paths):
+            probe_results.append({"path": path, "status": "skipped_by_robots"})
+            continue
+        try:
+            time.sleep(REQUEST_SPACING_SECONDS)
+            response = safe_get(root, path, expected_scope=root, max_bytes=8_000)
+            probe_results.append({
+                "path": path,
+                "status": "checked",
+                "http_status": response["status_code"],
+                "content_type": response["headers"].get("content-type", "")[:120],
+            })
+        except Exception as exc:
+            probe_results.append({"path": path, "status": "unavailable", "error": type(exc).__name__})
     sitemap_urls: list[str] = []
     if sitemap_result and sitemap_result["status_code"] < 400:
         for loc in re.findall(r"<loc>\s*(.*?)\s*</loc>", sitemap_result["body"], re.I | re.S):
@@ -724,18 +952,54 @@ def phase5(ctx: dict[str, Any], previous: dict[str, Any]) -> dict[str, Any]:
                     break
     paths_sorted = sorted(paths)[:50]
     ctx["robots_paths"] = paths_sorted
+    ctx["robots_disallowed_paths"] = sorted(disallowed_paths)[:50]
     ctx["sitemap_urls"] = list(dict.fromkeys(sitemap_urls))[:MAX_URLS]
-    return make_report(5, started, "completed_with_warnings" if warnings else "completed", 4, handoff_report(previous), "Analyzed Phase 4's observed technology hints, then read only the root robots.txt and sitemap.xml; did not brute-force paths or fetch paths listed in robots.txt.", {
+    return make_report(5, started, "completed_with_warnings" if warnings else "completed", 4, handoff_report(previous), "Analyzed Phase 4's hints, read the root robots.txt and sitemap.xml, then checked a fixed list of at most eight common paths with serial GET requests. No wordlist, recursive brute force, redirects, or robots-disallowed paths are used.", {
         "robots_status": robots_result["status_code"] if robots_result else None,
         "robots_paths": paths_sorted,
         "sitemap_status": sitemap_result["status_code"] if sitemap_result else None,
         "sitemap_urls": ctx["sitemap_urls"],
+        "fixed_path_checks": probe_results,
+        "path_check_cap": MAX_PATH_PROBES,
     }, warnings)
 
 
 def phase6(ctx: dict[str, Any], previous: dict[str, Any]) -> dict[str, Any]:
     started = time.monotonic()
     urls: set[str] = set(ctx.get("sitemap_urls", []))
+    warnings: list[str] = []
+    archive_urls: list[str] = []
+    archive_path = "/cdx/search/cdx?" + urlencode({
+        "url": f"{ctx['domain']}/*",
+        "output": "json",
+        "fl": "original",
+        "filter": "statuscode:200",
+        "collapse": "urlkey",
+        "limit": "50",
+    })
+    try:
+        archive_response = safe_get("web.archive.org", archive_path, max_bytes=100_000)
+        if archive_response["status_code"] < 400:
+            archive_rows = json.loads(archive_response["body"] or "[]")
+            if isinstance(archive_rows, list):
+                for row in archive_rows[1:]:
+                    raw_url = row[0] if isinstance(row, list) and row else ""
+                    parts = urlsplit(str(raw_url))
+                    if parts.scheme in ("http", "https") and parts.hostname and in_scope(parts.hostname, ctx["domain"]):
+                        archive_urls.append(redact_query_values(urlunsplit((parts.scheme, parts.netloc, parts.path or "/", parts.query, ""))))
+                    if len(archive_urls) >= MAX_URLS:
+                        break
+        else:
+            warnings.append(f"Internet Archive returned HTTP {archive_response['status_code']}.")
+    except Exception as exc:
+        warnings.append(f"Internet Archive lookup unavailable ({type(exc).__name__}).")
+    urls.update(archive_urls)
+
+    fetched_pages: list[dict[str, Any]] = []
+    for host, home in ctx.get("homepages", {}).items():
+        if host == ctx["domain"]:
+            fetched_pages.append({"url": home["page"]["url"], "page": home["page"], "parsed": home["parsed"]})
+    queue: list[str] = list(urls)
     for host, home in ctx.get("homepages", {}).items():
         base_url = home["page"]["url"]
         for link in home["parsed"].links:
@@ -747,15 +1011,57 @@ def phase6(ctx: dict[str, Any], previous: dict[str, Any]) -> dict[str, Any]:
                 continue
             candidate = redact_query_values(urlunsplit((parts.scheme, parts.netloc, parts.path or "/", parts.query, "")))
             urls.add(candidate[:1500])
+            queue.append(candidate[:1500])
             if len(urls) >= MAX_URLS:
                 break
+
+    robots_disallowed = ctx.get("robots_disallowed_paths", [])
+    visited_paths = {"/"}
+    crawl_requests = 1 if fetched_pages else 0
+    crawl_errors: list[str] = []
+    for candidate in queue:
+        if crawl_requests >= MAX_CRAWL_PAGES:
+            break
+        parts = urlsplit(candidate)
+        if parts.scheme not in ("http", "https") or parts.hostname != ctx["domain"] or parts.username or parts.password:
+            continue
+        path = parts.path or "/"
+        if path in visited_paths or any(path.startswith(rule) for rule in robots_disallowed if rule):
+            continue
+        if re.search(r"\.(?:png|jpe?g|gif|svg|css|woff2?|ttf|ico|pdf|zip)$", path, re.I):
+            continue
+        visited_paths.add(path)
+        crawl_requests += 1
+        time.sleep(REQUEST_SPACING_SECONDS)
+        try:
+            page = safe_get(ctx["domain"], path, expected_scope=ctx["domain"], max_bytes=MAX_BODY_BYTES)
+            urls.add(page["url"])
+            if page["status_code"] < 400 and "text/html" in page["headers"].get("content-type", "").lower():
+                parsed = parse_page(page["body"])
+                fetched_pages.append({"url": page["url"], "page": page, "parsed": parsed})
+                for link in parsed.links:
+                    linked = urlsplit(urljoin(page["url"], link.strip()))
+                    if linked.scheme in ("http", "https") and linked.hostname == ctx["domain"] and not linked.username and not linked.password:
+                        urls.add(urlunsplit((linked.scheme, linked.netloc, linked.path or "/", "", "")))
+                        queue.append(urlunsplit((linked.scheme, linked.netloc, linked.path or "/", linked.query, "")))
+        except Exception as exc:
+            crawl_errors.append(type(exc).__name__)
+    ctx["crawled_pages"] = fetched_pages
+    ctx["archive_urls"] = list(dict.fromkeys(archive_urls))[:MAX_URLS]
     safe_urls = sorted(urls)[:MAX_URLS]
     ctx["urls"] = safe_urls
-    return make_report(6, started, "completed", 5, handoff_report(previous), "Analyzed Phase 5's robots and sitemap report plus the captured homepage to collect same-scope URLs; did not submit forms or follow off-scope links.", {
+    if crawl_errors:
+        warnings.append("Some same-scope crawl requests failed within the short request timeout.")
+    return make_report(6, started, "completed_with_warnings" if warnings else "completed", 5, handoff_report(previous), "Analyzed Phase 5's report, collected same-scope links, queried the Internet Archive CDX endpoint for historical URLs, and crawled at most eight HTML pages on the exact root host. Forms were not submitted; redirects and off-scope URLs were not followed.", {
         "urls": safe_urls,
         "url_count": len(safe_urls),
-        "sources": ["homepage links", "sitemap.xml"],
-    })
+        "historical_urls": ctx["archive_urls"],
+        "pages_crawled": len(fetched_pages),
+        "page_requests": crawl_requests,
+        "crawl_page_cap": MAX_CRAWL_PAGES,
+        "sources": ["homepage links", "sitemap.xml", "Internet Archive CDX"],
+        "forms_submitted": False,
+    }, warnings)
 
 
 SECRET_PATTERN = re.compile(r"(?i)(api[_-]?key|access[_-]?token|client[_-]?secret|password|private[_-]?key)\s*[:=]\s*['\"]?([A-Za-z0-9_./+=-]{12,})")
@@ -766,13 +1072,19 @@ def phase7(ctx: dict[str, Any], previous: dict[str, Any]) -> dict[str, Any]:
     started = time.monotonic()
     root = ctx["domain"]
     scripts: list[tuple[str, str]] = []
-    for host, home in ctx.get("homepages", {}).items():
-        for source in home["parsed"].scripts:
-            absolute = urljoin(home["page"]["url"], source)
+    seen_scripts: set[str] = set()
+    for page_record in ctx.get("crawled_pages", []):
+        page_url = page_record["url"]
+        host = urlsplit(page_url).hostname or ""
+        if host != root:
+            continue
+        for source in page_record["parsed"].scripts:
+            absolute = urljoin(page_url, source)
             parts = urlsplit(absolute)
-            if parts.scheme not in ("http", "https") or not parts.hostname or not in_scope(parts.hostname, root) or parts.hostname != host or parts.query:
+            if parts.scheme not in ("http", "https") or parts.hostname != root or parts.query or absolute in seen_scripts:
                 continue
             scripts.append((host, absolute))
+            seen_scripts.add(absolute)
             if len(scripts) >= MAX_JS_FILES:
                 break
         if len(scripts) >= MAX_JS_FILES:
@@ -786,6 +1098,7 @@ def phase7(ctx: dict[str, Any], previous: dict[str, Any]) -> dict[str, Any]:
         if parts.query:
             path += "?" + parts.query
         try:
+            time.sleep(REQUEST_SPACING_SECONDS)
             response = safe_get(host, path, expected_scope=root, max_bytes=MAX_BODY_BYTES)
             if response["status_code"] >= 400:
                 continue
@@ -883,9 +1196,9 @@ def final_result(job_id: str, domain: str, reports: list[dict[str, Any]]) -> dic
         "live_hosts": len(reports[3].get("outputs", {}).get("live_hosts", [])) if len(reports) > 3 else 0,
         "urls_collected": len(reports[6].get("outputs", {}).get("urls", [])) if len(reports) > 6 else 0,
         "limitations": [
-            "No vulnerability exploitation, injection payloads, port scanning, password guessing, or data extraction.",
-            "Jobs run in one bounded Vercel Function invocation; reports are saved in this browser only.",
-            "Passive lookup shares the domain with crt.sh after explicit consent.",
+            "No wordlist brute force, vulnerability exploitation, injection payloads, port scanning, password guessing, or data extraction.",
+            "Each run uses one bounded request to the Python backend; reports are saved in this browser only.",
+            "After explicit consent, passive lookups may share the domain with crt.sh, the Internet Archive, and configured Subfinder/Amass providers.",
         ],
     }
     return {"job_id": job_id, "domain": domain, "created_at": utc_now(), "summary": summary, "phase_reports": reports, "final_findings": findings}
@@ -923,5 +1236,4 @@ async def scan(request: Request, payload: ScanRequest):
             yield json.dumps({"type": "final", "report": result}, ensure_ascii=False, separators=(",", ":")) + "\n"
 
     return StreamingResponse(events(), media_type="application/x-ndjson", headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
-
 

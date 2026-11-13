@@ -1,12 +1,12 @@
 (() => {
   const PHASES = [
     ["Scope & Setup", "Permission and scope confirmation"],
-    ["Passive Recon & OSINT", "Certificate transparency lookup"],
-    ["Subdomain Discovery", "Public DNS resolution"],
+    ["Passive Recon & OSINT", "crt.sh, public DNS records and CT names"],
+    ["Subdomain Discovery", "DNS resolution plus optional passive CLIs"],
     ["Live Host Verification", "One homepage request to the confirmed root domain"],
     ["Technology Fingerprinting", "Analyze observed page and response headers"],
-    ["Content & Directory Discovery", "Read robots.txt and sitemap.xml only"],
-    ["URL & Endpoint Discovery", "Extract same-origin links from collected pages"],
+    ["Content & Directory Discovery", "Robots, sitemap and at most eight fixed paths"],
+    ["URL & Endpoint Discovery", "Wayback lookup and an eight-page same-host crawl"],
     ["JavaScript Analysis", "Inspect up to three same-scope JavaScript files"],
     ["Parameter Discovery", "Inventory parameter names without values"],
     ["Passive Security Review", "Review observed security configuration indicators"],
@@ -88,8 +88,13 @@
     backendStatus.dataset.state = "checking";
     backendStatus.lastElementChild.textContent = "Python backend যাচাই হচ্ছে…";
     try {
-      const response = await fetch("/api/health", { headers: { "Accept": "application/json" }, cache: "no-store" });
+      const [response, toolsResponse] = await Promise.all([
+        fetch("/api/health", { headers: { "Accept": "application/json" }, cache: "no-store" }),
+        fetch("/api/tools", { headers: { "Accept": "application/json" }, cache: "no-store" }),
+      ]);
       const health = response.ok ? await response.json() : null;
+      const inventory = toolsResponse.ok ? await toolsResponse.json() : null;
+      if (inventory) renderToolInventory(inventory);
       backendAvailable = Boolean(health && health.status === "ok" && health.phases === 10);
       backendStatus.dataset.state = backendAvailable ? "online" : "offline";
       backendStatus.lastElementChild.textContent = backendAvailable ? `Python backend online · ${health.phases} phases` : "Python backend unavailable · retry";
@@ -105,6 +110,32 @@
     if (className) element.className = className;
     if (text !== undefined) element.textContent = text;
     return element;
+  }
+
+  function renderToolInventory(inventory) {
+    const root = document.getElementById("tool-inventory");
+    if (!root) return;
+    const groups = Array.from({ length: 10 }, (_, phase) => ({ phase, items: [] }));
+    for (const item of inventory.tools || []) {
+      if (groups[item.phase]) groups[item.phase].items.push(item);
+    }
+    root.replaceChildren(node("h3", "tool-inventory-title", `Reference tool availability · Python ${inventory.runtime?.python || ""} · ${inventory.runtime?.platform || "local"}`));
+    const grid = node("div", "tool-inventory-grid");
+    for (const group of groups) {
+      const section = node("section", "tool-phase");
+      section.append(node("h4", "", `Phase ${group.phase}`));
+      const list = node("ul", "tool-list");
+      for (const item of group.items) {
+        const row = node("li", "tool-row");
+        const heading = node("div", "tool-row-heading");
+        heading.append(node("strong", "", item.tool), node("span", `tool-state ${item.installed === true ? "present" : item.installed === false ? "absent" : "manual"}`, item.availability || item.mode));
+        row.append(heading, node("small", "", item.integration));
+        list.append(row);
+      }
+      section.append(list);
+      grid.append(section);
+    }
+    root.append(grid);
   }
 
   function makePhaseCard(index) {
@@ -172,6 +203,11 @@
       details.append(node("div", "handoff", "Initial input · domain and authorization"));
     }
     details.append(node("p", "analysis", report.analysis || "No analysis note."));
+
+    const toolBlock = node("div", "report-block");
+    toolBlock.append(node("label", "", "BACKEND TOOLS USED / POLICY"));
+    toolBlock.append(node("pre", "", JSON.stringify(report.tools_used || [], null, 2)));
+    details.append(toolBlock);
 
     const inputBlock = node("div", "report-block");
     inputBlock.append(node("label", "", "COMPLETE PREVIOUS PHASE REPORT"));

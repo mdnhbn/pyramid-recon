@@ -52,14 +52,14 @@
               <form id="scan-form" novalidate autocomplete="off">
                 <label class="field-label" for="domain">Root domain</label>
                 <div class="domain-input-wrap"><span aria-hidden="true">⌕</span><input id="domain" name="domain" type="text" inputmode="url" autocomplete="off" placeholder="example.com" maxlength="253" required><span class="input-suffix">DOMAIN</span></div>
-                <p class="field-hint">URL নয়—শুধু root domain লিখুন। শুধু owner বা লিখিত অনুমতিপ্রাপ্ত domain scan করুন। Subdomain passive inventory-তে থাকবে; সরাসরি HTTP request কেবল এই root domain-এ যাবে।</p>
+                <p class="field-hint">URL নয়—শুধু root domain লিখুন। শুধু owner বা লিখিত অনুমতিপ্রাপ্ত domain scan করুন। Subdomain passive inventory-তে থাকবে; সরাসরি HTTP কেবল এই root host-এ সীমিত থাকবে।</p>
 
                 <div class="consent-list">
                   <label class="check-row"><input id="authorization" type="checkbox"><span class="custom-check"></span><span><strong>আমি এই root domain-এর owner, অথবা লিখিত অনুমতি আছে</strong><small>আমি কেবল অনুমোদিত scope-এ এই low-impact assessment চালাব।</small></span></label>
-                  <label class="check-row"><input id="provider-consent" type="checkbox"><span class="custom-check"></span><span><strong>Public provider-এ domain query করতে সম্মতি দিচ্ছি</strong><small>Certificate-transparency lookup-এর জন্য domain crt.sh-এ যাবে; DNS name resolver-এর কাছে যাবে।</small></span></label>
+                  <label class="check-row"><input id="provider-consent" type="checkbox"><span class="custom-check"></span><span><strong>Public provider-এ domain query করতে সম্মতি দিচ্ছি</strong><small>Domain crt.sh ও Internet Archive-এ query হবে। Local-এ Subfinder/Amass থাকলে তাদের passive sources-এও query যেতে পারে; DNS name configured resolver-এর কাছে যাবে।</small></span></label>
                 </div>
 
-                <div class="limit-note"><span class="shield-icon" aria-hidden="true">◈</span><span><strong>Low-impact limits</strong><small>সর্বোচ্চ ৪টি DNS name · HTTP request শুধু entered root-এ · redirect follow নয় · কোনো exploit নয়</small></span></div>
+                <div class="limit-note"><span class="shield-icon" aria-hidden="true">◈</span><span><strong>Low-impact limits</strong><small>সর্বোচ্চ ৪টি DNS name · root host-এ ৮টি fixed path check ও সর্বোচ্চ ৮টি HTML page crawl · redirect follow নয় · কোনো exploit নয়</small></span></div>
                 <div class="form-actions"><button id="run-button" type="submit" class="button button-primary" disabled><span class="button-orbit" aria-hidden="true">↘</span><span>Serial recon শুরু</span><span class="button-arrow" aria-hidden="true">→</span></button><button type="button" id="stop-button" class="button button-stop" hidden>Stop run</button></div>
                 <p class="form-footnote">প্রতিটি phase শুধু আগের phase-এর report পাওয়ার পর শুরু হবে। Findings স্বয়ংক্রিয়ভাবে যাচাইকৃত vulnerability হিসেবে দেখানো হবে না।</p>
               </form>
@@ -92,23 +92,24 @@
         </section>
 
         <details class="methods-section" id="methods" open>
-          <summary><span><span class="section-kicker">BACKEND INVENTORY</span><strong>এই ১০টি phase-এ backend-এ আসলে কী চলে?</strong></span><span class="methods-summary-note">built-in Python + public DNS/CT lookup</span></summary>
-          <p class="methods-intro">নিচের তালিকাটি code-এ থাকা বাস্তব পদ্ধতি। এখানে আলাদা Nmap, Nuclei, Nikto, Subfinder, DNSRecon, theHarvester, Photon বা Arjun binary/tool suite install করা নেই। Phase 9 হলো passive header review—পূর্ণ vulnerability scanner নয়।</p>
+          <summary><span><span class="section-kicker">BACKEND INVENTORY</span><strong>এই ১০টি phase-এ backend-এ আসলে কী চলে?</strong></span><span class="methods-summary-note">Python methods + scoped optional tools</span></summary>
+          <p class="methods-intro">Reference page-এর tool-গুলো নিচে phase অনুযায়ী map করা হয়েছে। Python backend নিজে safe bounded method চালায়; শুধু local machine-এ Subfinder বা Amass install থাকলে Phase 2-তে passive mode চলে। অন্য binary install হয়েছে বলে ধরে নেওয়া হয় না। প্রতিটি external tool-এর বর্তমান availability backend থেকে দেখা হবে।</p>
           <div class="method-grid">
-            <article class="method-card"><span>PHASE 0</span><h3>Scope & consent</h3><p>Python-এর domain validation এবং UI-তে দেওয়া authorization/provider consent যাচাই। কোনো network tool চলে না।</p></article>
-            <article class="method-card"><span>PHASE 1</span><h3>Certificate transparency</h3><p>Custom bounded HTTP helper দিয়ে <code>crt.sh</code> JSON lookup। এটি আলাদা OSINT scanner নয়।</p></article>
-            <article class="method-card"><span>PHASE 2</span><h3>DNS lookup</h3><p><code>dnspython</code> দিয়ে সর্বোচ্চ ৪টি name-এর A/AAAA রেকর্ড resolve; public IP ছাড়া বাদ।</p></article>
-            <article class="method-card"><span>PHASE 3</span><h3>Root homepage check</h3><p>Python <code>socket</code>, <code>ssl</code> ও <code>http.client</code>; resolved public IP-তে pin করে root-এর একটি GET, redirect অনুসরণ নয়।</p></article>
-            <article class="method-card"><span>PHASE 4</span><h3>Technology hints</h3><p>Built-in <code>html.parser</code>, response header ও কয়েকটি HTML marker মিলিয়ে সম্ভাব্য fingerprint।</p></article>
-            <article class="method-card"><span>PHASE 5</span><h3>Robots & sitemap</h3><p>একই সীমিত HTTP helper দিয়ে root-এর শুধু <code>/robots.txt</code> ও <code>/sitemap.xml</code> পড়া হয়; path brute force হয় না।</p></article>
-            <article class="method-card"><span>PHASE 6</span><h3>Same-scope URL collection</h3><p><code>html.parser</code> ও <code>urllib.parse</code> দিয়ে homepage link/sitemap URL সংগ্রহ; off-scope link fetch নয়।</p></article>
-            <article class="method-card"><span>PHASE 7</span><h3>JavaScript hints</h3><p>সর্বোচ্চ ৩টি same-host JS file GET, Python regex দিয়ে endpoint clue; সম্ভাব্য secret value report-এ redact।</p></article>
-            <article class="method-card"><span>PHASE 8</span><h3>Parameter names</h3><p><code>urllib.parse</code> দিয়ে সংগৃহীত URL থেকে নাম inventory; values রাখা বা test payload পাঠানো হয় না।</p></article>
-            <article class="method-card"><span>PHASE 9</span><h3>Passive security review</h3><p>আগে দেখা response header ও redacted JS indicator দেখে manual-review finding। Port scan/exploit বা injection test নয়।</p></article>
+            <article class="method-card"><span>PHASE 0</span><h3>Scope & prerequisites</h3><p>Python domain validation, ownership attestation, provider consent, runtime and optional local CLI availability. Go/pipx/Git/curl/wget are reference prerequisites, not automatically installed.</p></article>
+            <article class="method-card"><span>PHASE 1</span><h3>Passive Recon & OSINT</h3><p><code>crt.sh</code> CT query and <code>dnspython</code> A/AAAA/MX/NS/TXT summary. Censys, Shodan, DNSDumpster, Whois and ViewDNS are listed; they are not automatically queried.</p></article>
+            <article class="method-card"><span>PHASE 2</span><h3>Subdomain discovery</h3><p>Python DNS resolver handles candidate names; installed <code>subfinder</code> and <code>amass</code> may run passive mode. <code>dnsx</code> behavior is covered by dnspython. Puredns/MassDNS brute force is not run.</p></article>
+            <article class="method-card"><span>PHASE 3</span><h3>Live host verification</h3><p>One homepage request to the exact root host, pinned to a resolved public IP with redirects disabled. ProjectDiscovery <code>httpx</code> and <code>gowitness</code> are not invoked.</p></article>
+            <article class="method-card"><span>PHASE 4</span><h3>Technology fingerprinting</h3><p>Python HTML/header fingerprints provide WhatWeb-style hints. Wappalyzer extension and BuiltWith are not queried by the backend.</p></article>
+            <article class="method-card"><span>PHASE 5</span><h3>Content discovery</h3><p>Reads root <code>robots.txt</code>/<code>sitemap.xml</code>, then checks at most 8 fixed paths serially and skips robots-disallowed paths. ffuf, feroxbuster and dirsearch wordlists are not run.</p></article>
+            <article class="method-card"><span>PHASE 6</span><h3>URL & endpoint discovery</h3><p>Internet Archive CDX historical lookup plus Python same-host crawler capped at 8 pages. Katana/hakrawler binaries are not invoked; forms and redirects are not followed.</p></article>
+            <article class="method-card"><span>PHASE 7</span><h3>JavaScript & secrets</h3><p>Python URL and credential-pattern checks on at most 3 root-host scripts, equivalent to a limited SecretFinder/jsluice review. Matched values are redacted.</p></article>
+            <article class="method-card"><span>PHASE 8</span><h3>Parameter discovery</h3><p>Parameter names only from observed and archived URLs (ParamSpider-style). Arjun is not invoked because it sends active parameter probes.</p></article>
+            <article class="method-card"><span>PHASE 9</span><h3>Passive security review</h3><p>Nuclei templates, SQLMap, Ghauri, Dalfox and Nmap are listed but not run. No injection, exploitation, database extraction or port scan occurs.</p></article>
           </div>
+          <div id="tool-inventory" class="tool-inventory" aria-live="polite"><p class="methods-intro">Backend tool availability is loading…</p></div>
         </details>
 
-        <section class="safety-strip"><div class="safety-mark" aria-hidden="true">✓</div><div><strong>অনুমোদিত scope-এর জন্য তৈরি</strong><p>লিখিত অনুমতি ছাড়া চালাবেন না। Toolটি port scan, form submission, payload injection, credential guessing, WAF bypass, exploitation বা data extraction করে না। Report এই browser-এর local storage-এ থাকে।</p></div><span class="safety-label">SAFE BY DEFAULT</span></section>
+        <section class="safety-strip"><div class="safety-mark" aria-hidden="true">✓</div><div><strong>অনুমোদিত scope-এর জন্য তৈরি</strong><p>লিখিত অনুমতি ছাড়া চালাবেন না। সীমিত path/page GET ছাড়া wordlist brute force, port scan, form submission, payload injection, credential guessing, WAF bypass, exploitation বা data extraction হয় না। Report এই browser-এর local storage-এ থাকে।</p></div><span class="safety-label">SAFE BY DEFAULT</span></section>
       </main>
 
       <footer class="footer"><span>PYRAMID RECON <i>·</i> 0 → 9</span><span>Built for explicit, low-impact assessment.</span></footer>
@@ -116,4 +117,3 @@
     </div>
   </body>
 </html>
-
