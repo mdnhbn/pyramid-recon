@@ -12,6 +12,7 @@
 .theme-toggle:focus-visible{outline:2px solid var(--mint);outline-offset:2px}
 .export-actions{display:flex;align-items:center;gap:7px;margin-left:auto}
 .export-actions .button:disabled{opacity:.45;cursor:not-allowed}
+.export-note{margin:10px 0 0 40px;color:#8ba0ad;font-size:9px;line-height:1.55}
 .methods-section{margin:28px 0;border:1px solid var(--line);border-radius:16px;background:var(--panel);box-shadow:var(--shadow);overflow:hidden}
 .methods-section>summary{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:20px 23px;cursor:pointer;list-style:none}
 .methods-section>summary::-webkit-details-marker{display:none}
@@ -93,6 +94,7 @@ html[data-theme="light"] .footer{color:#718790}
 html[data-theme="light"] .toast{border-color:#a6d0c6;background:#eff8f5;color:#245e54}
 html[data-theme="light"] .theme-toggle{border-color:#cbdadd;background:#fff;color:#35535d}
 html[data-theme="light"] .theme-toggle:hover{border-color:#65a99c;color:#196c61}
+html[data-theme="light"] .export-note{color:#637b85}
 html[data-theme="light"] .methods-section{background:#fff}
 html[data-theme="light"] .methods-section>summary strong{color:#203c46}
 html[data-theme="light"] .methods-summary-note{border-color:#d5e2e4;color:#5b737d;background:#f5f9f9}
